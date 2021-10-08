@@ -3,13 +3,8 @@ mod model;
 mod texture;
 
 use crate::model::Vertex;
-use camera::Camera;
 use cgmath::{InnerSpace, Rotation3, Zero};
-use model::{Mesh, Model};
-use pollster::block_on;
-use std::ops::Range;
 use wgpu::{util::DeviceExt, BindGroup, BindGroupLayout, RenderPipeline};
-use winit::dpi::PhysicalPosition;
 use winit::{
 	event::*,
 	event_loop::{ControlFlow, EventLoop},
@@ -65,8 +60,7 @@ fn main() {
 				}
 			}
 			Event::MainEventsCleared => {
-				// RedrawRequested will only trigger once, unless we manually
-				// request it.
+				// RedrawRequested will only trigger once, unless we manually request it
 				window.request_redraw();
 			}
 			_ => {}
@@ -106,6 +100,7 @@ impl InstanceRaw {
 			attributes: &[
 				// A mat4 takes up 4 vertex slots as it is technically 4 vec4s. We need to define a slot
 				// for each vec4. We'll have to reassemble the mat4 in the shader.
+
 				// model matrix (1/4)
 				wgpu::VertexAttribute {
 					offset: 0,
@@ -393,7 +388,7 @@ impl State {
 			});
 			let shader = wgpu::ShaderModuleDescriptor {
 				label: Some("Light Shader"),
-				source: wgpu::ShaderSource::Wgsl(include_str!("light.wgsl").into()),
+				source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/light.wgsl").into()),
 			};
 			Self::create_render_pipeline(&device, &layout, config.format, Some(texture::Texture::DEPTH_FORMAT), &[model::ModelVertex::desc()], shader)
 		};
@@ -412,7 +407,7 @@ impl State {
 			&[model::ModelVertex::desc(), InstanceRaw::desc()],
 			wgpu::ShaderModuleDescriptor {
 				label: Some("Shader"),
-				source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+				source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/shader.wgsl").into()),
 			},
 		);
 

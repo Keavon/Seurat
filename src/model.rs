@@ -51,12 +51,12 @@ impl Model {
 					.into_par_iter()
 					.map(|i| {
 						ModelVertex {
-							position: [m.mesh.positions[i * 3], m.mesh.positions[i * 3 + 1], m.mesh.positions[i * 3 + 2]].into(),
-							uv: [m.mesh.texcoords[i * 2], m.mesh.texcoords[i * 2 + 1]].into(),
-							normal: [m.mesh.normals[i * 3], m.mesh.normals[i * 3 + 1], m.mesh.normals[i * 3 + 2]].into(),
+							position: [m.mesh.positions[i * 3], m.mesh.positions[i * 3 + 1], m.mesh.positions[i * 3 + 2]],
+							uv: [m.mesh.texcoords[i * 2], m.mesh.texcoords[i * 2 + 1]],
+							normal: [m.mesh.normals[i * 3], m.mesh.normals[i * 3 + 1], m.mesh.normals[i * 3 + 2]],
 							// We'll calculate these later
-							tangent: [0.0; 3].into(),
-							bitangent: [0.0; 3].into(),
+							tangent: [0.0; 3],
+							bitangent: [0.0; 3],
 						}
 					})
 					.collect::<Vec<_>>();
