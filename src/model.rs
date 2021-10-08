@@ -52,7 +52,7 @@ impl Model {
 					.map(|i| {
 						ModelVertex {
 							position: [m.mesh.positions[i * 3], m.mesh.positions[i * 3 + 1], m.mesh.positions[i * 3 + 2]].into(),
-							tex_coords: [m.mesh.texcoords[i * 2], m.mesh.texcoords[i * 2 + 1]].into(),
+							uv: [m.mesh.texcoords[i * 2], m.mesh.texcoords[i * 2 + 1]].into(),
 							normal: [m.mesh.normals[i * 3], m.mesh.normals[i * 3 + 1], m.mesh.normals[i * 3 + 2]].into(),
 							// We'll calculate these later
 							tangent: [0.0; 3].into(),
@@ -76,9 +76,9 @@ impl Model {
 					let pos1: cgmath::Vector3<_> = v1.position.into();
 					let pos2: cgmath::Vector3<_> = v2.position.into();
 
-					let uv0: cgmath::Vector2<_> = v0.tex_coords.into();
-					let uv1: cgmath::Vector2<_> = v1.tex_coords.into();
-					let uv2: cgmath::Vector2<_> = v2.tex_coords.into();
+					let uv0: cgmath::Vector2<_> = v0.uv.into();
+					let uv1: cgmath::Vector2<_> = v1.uv.into();
+					let uv2: cgmath::Vector2<_> = v2.uv.into();
 
 					// Calculate the edges of the triangle
 					let delta_pos1 = pos1 - pos0;
@@ -273,7 +273,7 @@ pub trait Vertex {
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ModelVertex {
 	position: [f32; 3],
-	tex_coords: [f32; 2],
+	uv: [f32; 2],
 	normal: [f32; 3],
 	tangent: [f32; 3],
 	bitangent: [f32; 3],
