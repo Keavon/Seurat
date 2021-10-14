@@ -1,8 +1,7 @@
-use cgmath::*;
-use std::f32::consts::FRAC_PI_2;
-use std::time::Duration;
+use cgmath::{InnerSpace, Matrix4, Point3, Rad, SquareMatrix, Vector3};
+use std::{f32::consts::FRAC_PI_2, time::Duration};
 use winit::dpi::PhysicalPosition;
-use winit::event::*;
+use winit::event::{ElementState, MouseScrollDelta, VirtualKeyCode};
 
 const SAFE_FRAC_PI_2: f32 = FRAC_PI_2 - 0.0001;
 
@@ -57,7 +56,7 @@ impl Projection {
 	}
 
 	pub fn calc_matrix(&self) -> Matrix4<f32> {
-		OPENGL_TO_WGPU_MATRIX * perspective(self.fovy, self.aspect, self.znear, self.zfar)
+		OPENGL_TO_WGPU_MATRIX * cgmath::perspective(self.fovy, self.aspect, self.znear, self.zfar)
 	}
 }
 

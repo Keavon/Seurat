@@ -1,4 +1,4 @@
-use anyhow::*;
+use anyhow::Result;
 use image::GenericImageView;
 use std::path::Path;
 
@@ -45,19 +45,18 @@ impl Texture {
 		Self { texture, view, sampler }
 	}
 
-	pub fn load<P: AsRef<Path>>(device: &wgpu::Device, queue: &wgpu::Queue, path: P, is_normal_map: bool) -> Result<Self> {
-		// Needed to appease the borrow checker
-		let path_copy = path.as_ref().to_path_buf();
-		let label = path_copy.to_str();
+	pub fn load(device: &wgpu::Device, queue: &wgpu::Queue, directory: &Path, file: &str, is_normal_map: bool) -> Result<Self> {
+		let path = directory.join("models").join(file);
 
-		let img = image::open(path)?;
-		Self::from_image(device, queue, &img, label, is_normal_map)
+		let image = image::open(path.clone())?;
+
+		Self::from_image(device, queue, &image, path.to_str(), is_normal_map)
 	}
 
-	pub fn from_bytes(device: &wgpu::Device, queue: &wgpu::Queue, bytes: &[u8], label: &str, is_normal_map: bool) -> Result<Self> {
-		let img = image::load_from_memory(bytes)?;
-		Self::from_image(device, queue, &img, Some(label), is_normal_map)
-	}
+	// pub fn from_bytes(device: &wgpu::Device, queue: &wgpu::Queue, bytes: &[u8], label: &str, is_normal_map: bool) -> Result<Self> {
+	// 	let img = image::load_from_memory(bytes)?;
+	// 	Self::from_image(device, queue, &img, Some(label), is_normal_map)
+	// }
 
 	pub fn from_image(device: &wgpu::Device, queue: &wgpu::Queue, img: &image::DynamicImage, label: Option<&str>, is_normal_map: bool) -> Result<Self> {
 		let rgba = &img.to_rgba8();
