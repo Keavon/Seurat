@@ -1,11 +1,14 @@
 mod camera;
+mod component;
 mod engine;
+mod entity;
 mod light;
 mod material;
 mod mesh;
 mod model;
 mod shader;
 mod texture;
+mod transform;
 
 use crate::engine::Engine;
 

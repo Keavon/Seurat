@@ -1,4 +1,5 @@
 use crate::camera::{Camera, CameraController, CameraUniform, Projection};
+use crate::entity::Entity;
 use crate::light::LightUniform;
 use crate::mesh::{DrawLight, DrawModel};
 use crate::model::{Instance, Model};
@@ -15,6 +16,7 @@ pub struct Engine {
 	context: Context,
 	z_buffer: Texture,
 	frame_time: std::time::Instant,
+	scene: Entity,
 	scene_camera: SceneCamera,
 	scene_lighting: SceneLighting,
 	light_shader: Shader,
@@ -36,6 +38,9 @@ impl Engine {
 
 		// Prepare the initial time value used to calculate the delta time since last frame
 		let frame_time = std::time::Instant::now();
+
+		// Load the scene
+		let scene = Entity::new();
 
 		// Camera
 		let scene_camera = SceneCamera::new(&context);
@@ -88,6 +93,7 @@ impl Engine {
 			context,
 			z_buffer,
 			frame_time,
+			scene,
 			scene_camera,
 			scene_lighting,
 			light_shader,

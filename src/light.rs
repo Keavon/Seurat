@@ -1,3 +1,12 @@
+pub enum Light {
+	Lamp(Lamp),
+	Sun(Sun),
+}
+
+pub struct Lamp {}
+
+pub struct Sun {}
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct LightUniform {
