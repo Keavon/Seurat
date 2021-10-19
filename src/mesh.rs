@@ -1,84 +1,132 @@
 use crate::material::Material;
 use crate::model::Model;
 
-use std::{mem, ops::Range};
+use anyhow::Result;
+use cgmath::InnerSpace;
+use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use std::{mem, ops::Range, path::Path};
+use tobj::LoadOptions;
+use wgpu::{util::DeviceExt, RenderPass};
 
 pub struct Mesh {
 	pub name: String,
 	pub vertex_buffer: wgpu::Buffer,
 	pub index_buffer: wgpu::Buffer,
-	pub num_elements: u32,
-	pub material: usize,
+	pub index_count: u32,
 }
 
-pub trait DrawModel<'a> {
-	fn draw_mesh(&mut self, mesh: &'a Mesh, material: &'a Material, camera: &'a wgpu::BindGroup, light: &'a wgpu::BindGroup);
-	fn draw_mesh_instanced(&mut self, mesh: &'a Mesh, material: &'a Material, instances: Range<u32>, camera: &'a wgpu::BindGroup, light: &'a wgpu::BindGroup);
+impl Mesh {
+	pub fn load(device: &wgpu::Device, queue: &wgpu::Queue, directory: &Path, file: &str) -> Result<Vec<Self>> {
+		let path = directory.join("models").join(file);
 
-	fn draw_model(&mut self, model: &'a Model, camera: &'a wgpu::BindGroup, light: &'a wgpu::BindGroup);
-	fn draw_model_instanced(&mut self, model: &'a Model, instances: Range<u32>, camera: &'a wgpu::BindGroup, light: &'a wgpu::BindGroup);
-}
-impl<'a, 'b> DrawModel<'b> for wgpu::RenderPass<'a>
-where
-	'b: 'a,
-{
-	fn draw_mesh(&mut self, mesh: &'b Mesh, material: &'b Material, camera: &'b wgpu::BindGroup, light: &'a wgpu::BindGroup) {
-		self.draw_mesh_instanced(mesh, material, 0..1, camera, light);
-	}
+		let (obj_models, obj_materials) = tobj::load_obj(
+			path.clone(),
+			&LoadOptions {
+				triangulate: true,
+				single_index: true,
+				..Default::default()
+			},
+		)?;
+		let obj_materials = obj_materials?;
 
-	fn draw_mesh_instanced(&mut self, mesh: &'b Mesh, material: &'b Material, instances: Range<u32>, camera: &'b wgpu::BindGroup, light: &'a wgpu::BindGroup) {
-		self.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-		self.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+		let meshes = obj_models
+			.par_iter()
+			.map(|m| {
+				let mut vertices = (0..m.mesh.positions.len() / 3)
+					.into_par_iter()
+					.map(|i| {
+						ModelVertex {
+							position: [m.mesh.positions[i * 3], m.mesh.positions[i * 3 + 1], m.mesh.positions[i * 3 + 2]],
+							uv: [m.mesh.texcoords[i * 2], m.mesh.texcoords[i * 2 + 1]],
+							normal: [m.mesh.normals[i * 3], m.mesh.normals[i * 3 + 1], m.mesh.normals[i * 3 + 2]],
+							// Calculated below
+							tangent: [0.0; 3],
+							bitangent: [0.0; 3],
+						}
+					})
+					.collect::<Vec<_>>();
 
-		self.set_bind_group(0, &material.bind_group, &[]);
-		self.set_bind_group(1, camera, &[]);
-		self.set_bind_group(2, light, &[]);
+				let indices = &m.mesh.indices;
+				let mut triangles_included = (0..vertices.len()).collect::<Vec<_>>();
 
-		self.draw_indexed(0..mesh.num_elements, 0, instances);
-	}
+				// Calculate tangents and bitangets. We're going to
+				// use the triangles, so we need to loop through the
+				// indices in chunks of 3
+				for c in indices.chunks(3) {
+					let v0 = vertices[c[0] as usize];
+					let v1 = vertices[c[1] as usize];
+					let v2 = vertices[c[2] as usize];
 
-	fn draw_model(&mut self, model: &'b Model, camera: &'b wgpu::BindGroup, light: &'a wgpu::BindGroup) {
-		self.draw_model_instanced(model, 0..1, camera, light);
-	}
+					let pos0: cgmath::Vector3<_> = v0.position.into();
+					let pos1: cgmath::Vector3<_> = v1.position.into();
+					let pos2: cgmath::Vector3<_> = v2.position.into();
 
-	fn draw_model_instanced(&mut self, model: &'b Model, instances: Range<u32>, camera: &'b wgpu::BindGroup, light: &'a wgpu::BindGroup) {
-		for mesh in &model.meshes {
-			let material = &model.materials[mesh.material];
-			self.draw_mesh_instanced(mesh, material, instances.clone(), camera, light);
-		}
-	}
-}
+					let uv0: cgmath::Vector2<_> = v0.uv.into();
+					let uv1: cgmath::Vector2<_> = v1.uv.into();
+					let uv2: cgmath::Vector2<_> = v2.uv.into();
 
-pub trait DrawLight<'a> {
-	fn draw_light_mesh(&mut self, mesh: &'a Mesh, camera: &'a wgpu::BindGroup, light: &'a wgpu::BindGroup);
-	fn draw_light_mesh_instanced(&mut self, mesh: &'a Mesh, instances: Range<u32>, camera: &'a wgpu::BindGroup, light: &'a wgpu::BindGroup);
+					// Calculate the edges of the triangle
+					let delta_pos1 = pos1 - pos0;
+					let delta_pos2 = pos2 - pos0;
 
-	fn draw_light_model(&mut self, model: &'a Model, camera: &'a wgpu::BindGroup, light: &'a wgpu::BindGroup);
-	fn draw_light_model_instanced(&mut self, model: &'a Model, instances: Range<u32>, camera: &'a wgpu::BindGroup, light: &'a wgpu::BindGroup);
-}
-impl<'a, 'b> DrawLight<'b> for wgpu::RenderPass<'a>
-where
-	'b: 'a,
-{
-	fn draw_light_mesh(&mut self, mesh: &'b Mesh, camera: &'b wgpu::BindGroup, light: &'b wgpu::BindGroup) {
-		self.draw_light_mesh_instanced(mesh, 0..1, camera, light);
-	}
+					// This will give us a direction to calculate the
+					// tangent and bitangent
+					let delta_uv1 = uv1 - uv0;
+					let delta_uv2 = uv2 - uv0;
 
-	fn draw_light_mesh_instanced(&mut self, mesh: &'b Mesh, instances: Range<u32>, camera: &'b wgpu::BindGroup, light: &'b wgpu::BindGroup) {
-		self.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-		self.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-		self.set_bind_group(0, camera, &[]);
-		self.set_bind_group(1, light, &[]);
-		self.draw_indexed(0..mesh.num_elements, 0, instances);
-	}
+					// Solving the following system of equations will
+					// give us the tangent and bitangent.
+					//     delta_pos1 = delta_uv1.x * T + delta_u.y * B
+					//     delta_pos2 = delta_uv2.x * T + delta_uv2.y * B
+					// Luckily, the place I found this equation provided
+					// the solution!
+					let r = 1.0 / (delta_uv1.x * delta_uv2.y - delta_uv1.y * delta_uv2.x);
+					let tangent = (delta_pos1 * delta_uv2.y - delta_pos2 * delta_uv1.y) * r;
+					let bitangent = (delta_pos2 * delta_uv1.x - delta_pos1 * delta_uv2.x) * r;
 
-	fn draw_light_model(&mut self, model: &'b Model, camera: &'b wgpu::BindGroup, light: &'b wgpu::BindGroup) {
-		self.draw_light_model_instanced(model, 0..1, camera, light);
-	}
-	fn draw_light_model_instanced(&mut self, model: &'b Model, instances: Range<u32>, camera: &'b wgpu::BindGroup, light: &'b wgpu::BindGroup) {
-		for mesh in &model.meshes {
-			self.draw_light_mesh_instanced(mesh, instances.clone(), camera, light);
-		}
+					// We'll use the same tangent/bitangent for each vertex in the triangle
+					vertices[c[0] as usize].tangent = (tangent + cgmath::Vector3::from(vertices[c[0] as usize].tangent)).into();
+					vertices[c[1] as usize].tangent = (tangent + cgmath::Vector3::from(vertices[c[1] as usize].tangent)).into();
+					vertices[c[2] as usize].tangent = (tangent + cgmath::Vector3::from(vertices[c[2] as usize].tangent)).into();
+					vertices[c[0] as usize].bitangent = (bitangent + cgmath::Vector3::from(vertices[c[0] as usize].bitangent)).into();
+					vertices[c[1] as usize].bitangent = (bitangent + cgmath::Vector3::from(vertices[c[1] as usize].bitangent)).into();
+					vertices[c[2] as usize].bitangent = (bitangent + cgmath::Vector3::from(vertices[c[2] as usize].bitangent)).into();
+
+					// Used to average the tangents/bitangents
+					triangles_included[c[0] as usize] += 1;
+					triangles_included[c[1] as usize] += 1;
+					triangles_included[c[2] as usize] += 1;
+				}
+
+				// Average the tangents/bitangents
+				for (i, n) in triangles_included.into_iter().enumerate() {
+					let denom = 1.0 / n as f32;
+					let mut v = &mut vertices[i];
+					v.tangent = (cgmath::Vector3::from(v.tangent) * denom).normalize().into();
+					v.bitangent = (cgmath::Vector3::from(v.bitangent) * denom).normalize().into();
+				}
+
+				let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+					label: Some(&format!("{:?} Vertex Buffer", path)),
+					contents: bytemuck::cast_slice(&vertices),
+					usage: wgpu::BufferUsages::VERTEX,
+				});
+				let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+					label: Some(&format!("{:?} Index Buffer", m.name)),
+					contents: bytemuck::cast_slice(&m.mesh.indices),
+					usage: wgpu::BufferUsages::INDEX,
+				});
+
+				Ok(Mesh {
+					name: m.name.clone(),
+					vertex_buffer,
+					index_buffer,
+					index_count: m.mesh.indices.len() as u32,
+				})
+			})
+			.collect::<Result<Vec<_>>>()?;
+
+		Ok(meshes)
 	}
 }
 

@@ -1,6 +1,6 @@
-use anyhow::private::kind::TraitKind;
 pub use winit::dpi::Position;
 
+#[derive(Debug)]
 pub struct Transform {
 	pub location: cgmath::Point3<f64>,
 	pub rotation: cgmath::Quaternion<f64>,

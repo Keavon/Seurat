@@ -1,8 +1,10 @@
 use crate::camera::{Camera, CameraController, CameraUniform, Projection};
-use crate::entity::Entity;
+use crate::component::Component;
 use crate::light::LightUniform;
-use crate::mesh::{DrawLight, DrawModel};
+use crate::material::Material;
+use crate::mesh::Mesh;
 use crate::model::{Instance, Model};
+use crate::scene::Scene;
 use crate::shader::{Shader, ShaderBinding, ShaderBindingTexture};
 use crate::texture::Texture;
 
@@ -16,20 +18,15 @@ pub struct Engine {
 	context: Context,
 	z_buffer: Texture,
 	frame_time: std::time::Instant,
-	scene: Entity,
+	scene: Scene,
 	scene_camera: SceneCamera,
 	scene_lighting: SceneLighting,
-	light_shader: Shader,
-	cube_shader: Shader,
-	cube_model: Model,
-	cube_instances: Vec<Instance>,
-	cube_instances_buffer: wgpu::Buffer,
 	mouse_pressed: bool,
 }
 
 impl Engine {
 	// Creating some of the wgpu types requires async code
-	pub async fn new(window: &Window, assets_path: &Path) -> Self {
+	pub async fn new(window: &Window) -> Self {
 		// Mechanical details of the GPU rendering process
 		let context = Context::new(window).await;
 
@@ -39,29 +36,90 @@ impl Engine {
 		// Prepare the initial time value used to calculate the delta time since last frame
 		let frame_time = std::time::Instant::now();
 
-		// Load the scene
-		let scene = Entity::new();
-
 		// Camera
 		let scene_camera = SceneCamera::new(&context);
 
 		// Lights
 		let scene_lighting = SceneLighting::new(&context);
 
+		// Scene
+		let scene = Scene::new();
+
+		Self {
+			context,
+			z_buffer,
+			frame_time,
+			scene,
+			scene_camera,
+			scene_lighting,
+			mouse_pressed: false,
+		}
+	}
+
+	pub fn load(&mut self, assets_path: &Path) {
+		self.load_resources(assets_path);
+		self.load_scene();
+	}
+
+	fn load_resources(&mut self, assets_path: &Path) {
 		// Shaders
-		let light_shader = Shader::new(&context, assets_path, "light.wgsl", &[], &scene_camera, &scene_lighting);
+		let light_shader = Shader::new(&self.context, assets_path, "light.wgsl", &[], &self.scene_camera, &self.scene_lighting);
 		let cube_shader = {
 			let diffuse = ShaderBinding::Texture(ShaderBindingTexture::default());
 			let normal = ShaderBinding::Texture(ShaderBindingTexture::default());
 
-			Shader::new(&context, assets_path, "shader.wgsl", &[diffuse, normal], &scene_camera, &scene_lighting)
+			Shader::new(&self.context, assets_path, "shader.wgsl", &[diffuse, normal], &self.scene_camera, &self.scene_lighting)
 		};
+		self.scene.resources.shaders.insert(String::from("light.wgsl"), light_shader);
+		self.scene.resources.shaders.insert(String::from("shader.wgsl"), cube_shader);
 
-		// Models
+		// Textures
+		self.scene.resources.textures.insert(
+			String::from("cube-diffuse.jpg"),
+			Texture::load(&self.context.device, &self.context.queue, assets_path, "cube-diffuse.jpg", false).unwrap(),
+		);
+		self.scene.resources.textures.insert(
+			String::from("cube-normal.png"),
+			Texture::load(&self.context.device, &self.context.queue, assets_path, "cube-normal.png", true).unwrap(),
+		);
+
+		// Materials
+		self.scene.resources.materials.insert(
+			String::from("cube.material"),
+			Material::new(&self.context.device, &self.scene.resources, "cube.material", "shader.wgsl", "cube-diffuse.jpg", "cube-normal.png"),
+		);
+		// self.scene.resources.materials.insert(
+		// 	String::from("lamp.material"),
+		// 	Material::new(&self.context.device, &self.scene.resources, "lamp.material", "light.wgsl", "cube-diffuse.jpg", "cube-normal.png"),
+		// );
+
+		// Meshes
+		let meshes = Mesh::load(&self.context.device, &self.context.queue, assets_path, "cube.obj");
+		for mesh in meshes.unwrap_or_default() {
+			self.scene.resources.meshes.insert((String::from("cube.obj"), mesh.name.clone()), mesh);
+		}
+	}
+
+	fn load_scene(&mut self) {
+		// White cube representing the light
+		let lamp = self.scene.root.new_child("Lamp Model");
+
+		let mut lamp_model = Model::new(&self.scene.resources, ("cube.obj", "Cube_Finished_Cube.001"), "cube.material");
+		lamp_model.instances.instance_list[0].position.y = 4.;
+		lamp_model.instances.update_buffer(&self.context.device);
+		lamp.add_component(Component::Model(lamp_model));
+
+		let light_cube_movement = crate::scripts::light_cube_movement::LightCubeMovement;
+		lamp.add_component(Component::Behavior(Box::new(light_cube_movement)));
+
+		// Array of cubes
+		let cubes = self.scene.root.new_child("Cubes");
+
+		let mut cube_model = Model::new(&self.scene.resources, ("cube.obj", "Cube_Finished_Cube.001"), "cube.material");
+
 		const NUM_INSTANCES_PER_ROW: u32 = 10;
 		const SPACE_BETWEEN: f32 = 3.0;
-
-		let cube_instances = (0..NUM_INSTANCES_PER_ROW)
+		cube_model.instances.instance_list = (0..NUM_INSTANCES_PER_ROW)
 			.flat_map(|z| {
 				(0..NUM_INSTANCES_PER_ROW).map(move |x| {
 					let x = SPACE_BETWEEN * (x as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
@@ -79,30 +137,9 @@ impl Engine {
 				})
 			})
 			.collect::<Vec<_>>();
+		cube_model.instances.update_buffer(&self.context.device);
 
-		let instance_data = cube_instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
-		let cube_instances_buffer = context.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-			label: Some("Instance Buffer"),
-			contents: bytemuck::cast_slice(&instance_data),
-			usage: wgpu::BufferUsages::VERTEX,
-		});
-
-		let cube_model = Model::load(&context.device, &context.queue, &cube_shader, assets_path, "cube.obj").unwrap();
-
-		Self {
-			context,
-			z_buffer,
-			frame_time,
-			scene,
-			scene_camera,
-			scene_lighting,
-			light_shader,
-			cube_shader,
-			cube_model,
-			cube_instances,
-			cube_instances_buffer,
-			mouse_pressed: false,
-		}
+		cubes.add_component(Component::Model(cube_model));
 	}
 
 	fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -185,19 +222,32 @@ impl Engine {
 		}
 	}
 
-	fn update(&mut self, dt: std::time::Duration) {
-		self.scene_camera.camera_controller.update_camera(&mut self.scene_camera.camera, dt);
+	fn update(&mut self, delta_time: std::time::Duration) {
+		// Camera
+		self.scene_camera.camera_controller.update_camera(&mut self.scene_camera.camera, delta_time);
 		self.scene_camera.camera_uniform.update_view_proj(&self.scene_camera.camera, &self.scene_camera.projection);
 		self.context
 			.queue
 			.write_buffer(&self.scene_camera.camera_buffer, 0, bytemuck::cast_slice(&[self.scene_camera.camera_uniform]));
 
-		// Update the light
+		// Light
 		let old_position: cgmath::Vector3<_> = self.scene_lighting.light_uniform.position.into();
-		self.scene_lighting.light_uniform.position = (cgmath::Quaternion::from_axis_angle((0.0, 1.0, 0.0).into(), cgmath::Deg(60.0 * dt.as_secs_f32())) * old_position).into();
+		let new_position = cgmath::Quaternion::from_axis_angle((0.0, 1.0, 0.0).into(), cgmath::Deg(60.0 * delta_time.as_secs_f32())) * old_position;
+		self.scene_lighting.light_uniform.position = new_position.into();
 		self.context
 			.queue
 			.write_buffer(&self.scene_lighting.light_buffer, 0, bytemuck::cast_slice(&[self.scene_lighting.light_uniform]));
+
+		self.scene.root.update_behaviors_of_descendants();
+		let lamp_model = self.scene.root.find_descendant_mut("Lamp Model").unwrap();
+		let location = lamp_model.transform.location;
+		let rotation = lamp_model.transform.rotation;
+
+		for component in &mut lamp_model.components {
+			if let Component::Model(model) = component {
+				model.instances.transform_single_instance(location, rotation, &self.context.device);
+			}
+		}
 	}
 
 	fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -226,18 +276,31 @@ impl Engine {
 			}),
 		});
 
-		render_pass.set_vertex_buffer(1, self.cube_instances_buffer.slice(..));
+		for entity in &self.scene.root {
+			for component in &entity.components {
+				if let Component::Model(model) = component {
+					let mesh = &self.scene.resources.meshes[model.mesh];
+					let material = &self.scene.resources.materials[model.material];
+					let shader = &self.scene.resources.shaders[material.shader];
 
-		render_pass.set_pipeline(&self.light_shader.render_pipeline);
-		render_pass.draw_light_model(&self.cube_model, &self.scene_camera.camera_bind_group, &self.scene_lighting.light_bind_group);
+					let instances_buffer = model.instances.instances_buffer.as_ref();
+					let instances_range = 0..model.instances.instance_list.len() as u32;
 
-		render_pass.set_pipeline(&self.cube_shader.render_pipeline);
-		render_pass.draw_model_instanced(
-			&self.cube_model,
-			0..self.cube_instances.len() as u32,
-			&self.scene_camera.camera_bind_group,
-			&self.scene_lighting.light_bind_group,
-		);
+					render_pass.set_pipeline(&shader.render_pipeline);
+
+					render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+					render_pass.set_vertex_buffer(1, instances_buffer.unwrap().slice(..));
+
+					render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+
+					render_pass.set_bind_group(0, &material.bind_group, &[]);
+					render_pass.set_bind_group(1, &self.scene_camera.camera_bind_group, &[]);
+					render_pass.set_bind_group(2, &self.scene_lighting.light_bind_group, &[]);
+
+					render_pass.draw_indexed(0..mesh.index_count, 0, instances_range);
+				}
+			}
+		}
 
 		drop(render_pass);
 

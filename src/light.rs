@@ -1,10 +1,13 @@
+#[derive(Debug)]
 pub enum Light {
 	Lamp(Lamp),
 	Sun(Sun),
 }
 
+#[derive(Debug)]
 pub struct Lamp {}
 
+#[derive(Debug)]
 pub struct Sun {}
 
 #[repr(C)]

@@ -1,3 +1,4 @@
+mod behavior;
 mod camera;
 mod component;
 mod engine;
@@ -6,6 +7,8 @@ mod light;
 mod material;
 mod mesh;
 mod model;
+mod scene;
+mod scripts;
 mod shader;
 mod texture;
 mod transform;
@@ -30,7 +33,8 @@ fn main() {
 	let window = WindowBuilder::new().with_title("Seurat").build(&event_loop).unwrap();
 
 	// Initialize the engine
-	let mut engine = pollster::block_on(Engine::new(&window, &assets_path));
+	let mut engine = pollster::block_on(Engine::new(&window));
+	engine.load(&assets_path);
 
 	// Handle events, simulate, and draw frames repeatedly until the program is closed
 	event_loop.run(move |event, _, control_flow| {

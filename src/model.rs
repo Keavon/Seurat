@@ -1,160 +1,79 @@
-use crate::material::Material;
-use crate::mesh::Mesh;
-use crate::mesh::ModelVertex;
-use crate::shader::Shader;
-use crate::texture::Texture;
+use crate::scene::LoadedResources;
 
-use anyhow::Result;
-use cgmath::InnerSpace;
-use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
-use std::path::Path;
-use tobj::LoadOptions;
-use wgpu::util::DeviceExt;
+use wgpu::{util::DeviceExt, Device};
 
+#[derive(Debug)]
 pub struct Model {
-	pub meshes: Vec<Mesh>,
-	pub materials: Vec<Material>,
+	pub mesh: usize,
+	pub material: usize,
+	pub instances: Instances,
 }
 
 impl Model {
-	pub fn load(device: &wgpu::Device, queue: &wgpu::Queue, shader: &Shader, directory: &Path, file: &str) -> Result<Self> {
-		let path = directory.join("models").join(file);
-
-		let (obj_models, obj_materials) = tobj::load_obj(
-			path.clone(),
-			&LoadOptions {
-				triangulate: true,
-				single_index: true,
-				..Default::default()
-			},
-		)?;
-
-		let obj_materials = obj_materials?;
-
-		let materials = obj_materials
-			.par_iter()
-			.map(|material| {
-				// We can also parallelize loading the textures!
-				let mut textures = [(&material.diffuse_texture, false), (&material.normal_texture, true)]
-					.par_iter()
-					.map(|(file, is_normal_map)| Texture::load(device, queue, directory, file, *is_normal_map))
-					.collect::<Result<Vec<_>>>()?;
-
-				// Pop removes from the end of the list.
-				let normal_texture = textures.pop().unwrap();
-				let diffuse_texture = textures.pop().unwrap();
-
-				Ok(Material::new(device, &material.name, diffuse_texture, normal_texture, shader))
-			})
-			.collect::<Result<Vec<Material>>>()?;
-
-		let meshes = obj_models
-			.par_iter()
-			.map(|m| {
-				let mut vertices = (0..m.mesh.positions.len() / 3)
-					.into_par_iter()
-					.map(|i| {
-						ModelVertex {
-							position: [m.mesh.positions[i * 3], m.mesh.positions[i * 3 + 1], m.mesh.positions[i * 3 + 2]],
-							uv: [m.mesh.texcoords[i * 2], m.mesh.texcoords[i * 2 + 1]],
-							normal: [m.mesh.normals[i * 3], m.mesh.normals[i * 3 + 1], m.mesh.normals[i * 3 + 2]],
-							// We'll calculate these later
-							tangent: [0.0; 3],
-							bitangent: [0.0; 3],
-						}
-					})
-					.collect::<Vec<_>>();
-
-				let indices = &m.mesh.indices;
-				let mut triangles_included = (0..vertices.len()).collect::<Vec<_>>();
-
-				// Calculate tangents and bitangets. We're going to
-				// use the triangles, so we need to loop through the
-				// indices in chunks of 3
-				for c in indices.chunks(3) {
-					let v0 = vertices[c[0] as usize];
-					let v1 = vertices[c[1] as usize];
-					let v2 = vertices[c[2] as usize];
-
-					let pos0: cgmath::Vector3<_> = v0.position.into();
-					let pos1: cgmath::Vector3<_> = v1.position.into();
-					let pos2: cgmath::Vector3<_> = v2.position.into();
-
-					let uv0: cgmath::Vector2<_> = v0.uv.into();
-					let uv1: cgmath::Vector2<_> = v1.uv.into();
-					let uv2: cgmath::Vector2<_> = v2.uv.into();
-
-					// Calculate the edges of the triangle
-					let delta_pos1 = pos1 - pos0;
-					let delta_pos2 = pos2 - pos0;
-
-					// This will give us a direction to calculate the
-					// tangent and bitangent
-					let delta_uv1 = uv1 - uv0;
-					let delta_uv2 = uv2 - uv0;
-
-					// Solving the following system of equations will
-					// give us the tangent and bitangent.
-					//     delta_pos1 = delta_uv1.x * T + delta_u.y * B
-					//     delta_pos2 = delta_uv2.x * T + delta_uv2.y * B
-					// Luckily, the place I found this equation provided
-					// the solution!
-					let r = 1.0 / (delta_uv1.x * delta_uv2.y - delta_uv1.y * delta_uv2.x);
-					let tangent = (delta_pos1 * delta_uv2.y - delta_pos2 * delta_uv1.y) * r;
-					let bitangent = (delta_pos2 * delta_uv1.x - delta_pos1 * delta_uv2.x) * r;
-
-					// We'll use the same tangent/bitangent for each vertex in the triangle
-					vertices[c[0] as usize].tangent = (tangent + cgmath::Vector3::from(vertices[c[0] as usize].tangent)).into();
-					vertices[c[1] as usize].tangent = (tangent + cgmath::Vector3::from(vertices[c[1] as usize].tangent)).into();
-					vertices[c[2] as usize].tangent = (tangent + cgmath::Vector3::from(vertices[c[2] as usize].tangent)).into();
-					vertices[c[0] as usize].bitangent = (bitangent + cgmath::Vector3::from(vertices[c[0] as usize].bitangent)).into();
-					vertices[c[1] as usize].bitangent = (bitangent + cgmath::Vector3::from(vertices[c[1] as usize].bitangent)).into();
-					vertices[c[2] as usize].bitangent = (bitangent + cgmath::Vector3::from(vertices[c[2] as usize].bitangent)).into();
-
-					// Used to average the tangents/bitangents
-					triangles_included[c[0] as usize] += 1;
-					triangles_included[c[1] as usize] += 1;
-					triangles_included[c[2] as usize] += 1;
-				}
-
-				// Average the tangents/bitangents
-				for (i, n) in triangles_included.into_iter().enumerate() {
-					let denom = 1.0 / n as f32;
-					let mut v = &mut vertices[i];
-					v.tangent = (cgmath::Vector3::from(v.tangent) * denom).normalize().into();
-					v.bitangent = (cgmath::Vector3::from(v.bitangent) * denom).normalize().into();
-				}
-
-				let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-					label: Some(&format!("{:?} Vertex Buffer", path)),
-					contents: bytemuck::cast_slice(&vertices),
-					usage: wgpu::BufferUsages::VERTEX,
-				});
-				let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-					label: Some(&format!("{:?} Index Buffer", m.name)),
-					contents: bytemuck::cast_slice(&m.mesh.indices),
-					usage: wgpu::BufferUsages::INDEX,
-				});
-
-				Ok(Mesh {
-					name: m.name.clone(),
-					vertex_buffer,
-					index_buffer,
-					num_elements: m.mesh.indices.len() as u32,
-					material: m.mesh.material_id.unwrap_or(0),
-				})
-			})
-			.collect::<Result<Vec<_>>>()?;
-
-		Ok(Self { meshes, materials })
+	pub fn new(resources: &LoadedResources, mesh: (&str, &str), material: &str) -> Self {
+		let mesh = resources.meshes.get_index_of(&(String::from(mesh.0), String::from(mesh.1))).unwrap();
+		let material = resources.materials.get_index_of(&String::from(material)).unwrap();
+		let instances = Instances::new();
+		Self { mesh, material, instances }
 	}
 }
 
+#[derive(Debug)]
+pub struct Instances {
+	pub instance_list: Vec<Instance>,
+	pub instances_buffer: Option<wgpu::Buffer>,
+}
+
+impl Instances {
+	pub fn new() -> Self {
+		let origin = Instance::new();
+
+		Self {
+			instance_list: vec![origin],
+			instances_buffer: None,
+		}
+	}
+
+	pub fn transform_single_instance(&mut self, position: cgmath::Point3<f64>, rotation: cgmath::Quaternion<f64>, device: &Device) {
+		let position = cgmath::Vector3::new(position.x as f32, position.y as f32, position.z as f32);
+		let rotation = cgmath::Quaternion::new(rotation.s as f32, rotation.v.x as f32, rotation.v.y as f32, rotation.v.z as f32);
+		self.instance_list = vec![Instance { position, rotation }];
+		self.update_buffer(device);
+	}
+
+	pub fn update_buffer(&mut self, device: &Device) {
+		let instance_data = self.instance_list.iter().map(Instance::to_raw).collect::<Vec<_>>();
+
+		let instances_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+			label: Some("Instance Buffer"),
+			contents: bytemuck::cast_slice(&instance_data),
+			usage: wgpu::BufferUsages::VERTEX,
+		});
+
+		self.instances_buffer = Some(instances_buffer);
+	}
+}
+
+impl Default for Instances {
+	fn default() -> Self {
+		Self::new()
+	}
+}
+
+#[derive(Debug)]
 pub struct Instance {
 	pub position: cgmath::Vector3<f32>,
 	pub rotation: cgmath::Quaternion<f32>,
 }
+
 impl Instance {
+	pub fn new() -> Self {
+		Self {
+			position: cgmath::Vector3::new(0., 0., 0.),
+			rotation: cgmath::Quaternion::new(1., 0., 0., 0.),
+		}
+	}
+
 	pub fn to_raw(&self) -> InstanceRaw {
 		let model = cgmath::Matrix4::from_translation(self.position) * cgmath::Matrix4::from(self.rotation);
 		InstanceRaw {
@@ -164,12 +83,19 @@ impl Instance {
 	}
 }
 
+impl Default for Instance {
+	fn default() -> Self {
+		Self::new()
+	}
+}
+
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct InstanceRaw {
 	model: [[f32; 4]; 4],
 	normal: [[f32; 3]; 3],
 }
+
 impl InstanceRaw {
 	pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
 		wgpu::VertexBufferLayout {
