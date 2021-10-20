@@ -1,47 +1,82 @@
 use crate::scene::LoadedResources;
 
 pub struct Material {
-	pub shader: usize,
+	pub shader_id: usize,
 	pub name: String,
-	pub diffuse_texture: String,
-	pub normal_texture: String,
 	pub bind_group: wgpu::BindGroup,
 }
 impl Material {
-	pub fn new(device: &wgpu::Device, resources: &LoadedResources, name: &str, shader: &str, diffuse: &str, normal: &str) -> Self {
-		let shader_structure = &resources.shaders[shader];
-		let diffuse_texture = &resources.textures[diffuse];
-		let normal_texture = &resources.textures[normal];
+	pub fn new(material_name: &str, shader_name: &str, data_bindings: Vec<MaterialDataBinding>, resources: &LoadedResources, device: &wgpu::Device) -> Self {
+		let shader = &resources.shaders[shader_name];
+
+		let mut binding_index = 0;
+		let entries = shader
+			.shader_bindings
+			.iter()
+			.enumerate()
+			.flat_map(|(index, binding)| match binding {
+				crate::shader::ShaderBinding::Buffer(_) => {
+					let binding = binding_index;
+					binding_index += 1;
+
+					let buffer_binding = data_bindings
+						.get(index)
+						.map(|material_data_binding| match material_data_binding {
+							MaterialDataBinding::Buffer(buffer) => Some(buffer.clone()),
+							MaterialDataBinding::Texture(_) => None,
+						})
+						.flatten()
+						.unwrap_or_else(|| panic!("Provided binding data for material '{}' does not match the shader definition", material_name));
+
+					vec![wgpu::BindGroupEntry {
+						binding,
+						resource: wgpu::BindingResource::Buffer(buffer_binding),
+					}]
+				}
+				crate::shader::ShaderBinding::Texture(_) => {
+					let binding = binding_index;
+					binding_index += 2;
+
+					let texture_binding_name = data_bindings
+						.get(index)
+						.map(|material_data_binding| match material_data_binding {
+							MaterialDataBinding::Texture(texture) => Some(*texture),
+							MaterialDataBinding::Buffer(_) => None,
+						})
+						.flatten()
+						.unwrap_or_else(|| panic!("Provided binding data for material '{}' does not match the shader definition", material_name));
+
+					let texture_data = &resources.textures[texture_binding_name];
+
+					vec![
+						wgpu::BindGroupEntry {
+							binding,
+							resource: wgpu::BindingResource::TextureView(&texture_data.view),
+						},
+						wgpu::BindGroupEntry {
+							binding: binding + 1,
+							resource: wgpu::BindingResource::Sampler(&texture_data.sampler),
+						},
+					]
+				}
+			})
+			.collect::<Vec<wgpu::BindGroupEntry>>();
 
 		let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-			layout: &shader_structure.bind_group_layout,
-			entries: &[
-				wgpu::BindGroupEntry {
-					binding: 0,
-					resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
-				},
-				wgpu::BindGroupEntry {
-					binding: 1,
-					resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
-				},
-				wgpu::BindGroupEntry {
-					binding: 2,
-					resource: wgpu::BindingResource::TextureView(&normal_texture.view),
-				},
-				wgpu::BindGroupEntry {
-					binding: 3,
-					resource: wgpu::BindingResource::Sampler(&normal_texture.sampler),
-				},
-			],
-			label: Some(name),
+			layout: &shader.bind_group_layout,
+			entries: entries.as_slice(),
+			label: Some(material_name),
 		});
 
 		Self {
-			shader: resources.shaders.get_index_of(shader).unwrap(),
-			name: String::from(name),
-			diffuse_texture: String::from(diffuse),
-			normal_texture: String::from(normal),
+			shader_id: resources.shaders.get_index_of(shader_name).unwrap(),
+			name: String::from(material_name),
 			bind_group,
 		}
 	}
+}
+
+pub enum MaterialDataBinding<'a> {
+	Buffer(wgpu::BufferBinding<'a>),
+	Texture(&'a str),
 }

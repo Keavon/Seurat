@@ -1,4 +1,5 @@
-use crate::engine::{Context, SceneCamera, SceneLighting};
+use crate::camera::SceneCamera;
+use crate::engine::{Context, SceneLighting};
 use crate::mesh::{ModelVertex, Vertex};
 use crate::model::InstanceRaw;
 use crate::texture::Texture;
@@ -10,11 +11,12 @@ pub struct Shader {
 	pub bind_group_layout: BindGroupLayout,
 	pub render_pipeline: RenderPipeline,
 	pub render_pipeline_layout: PipelineLayout,
+	pub shader_bindings: Vec<ShaderBinding>,
 }
 
 impl Shader {
-	pub fn new(context: &Context, directory: &Path, file: &str, bindings: &[ShaderBinding], scene_camera: &SceneCamera, scene_lighting: &SceneLighting) -> Self {
-		let bind_group_layout_entries = build_bind_group_layout_entries(bindings);
+	pub fn new(context: &Context, directory: &Path, file: &str, shader_bindings: Vec<ShaderBinding>, scene_camera: &SceneCamera, scene_lighting: &SceneLighting) -> Self {
+		let bind_group_layout_entries = build_bind_group_layout_entries(shader_bindings.as_slice());
 
 		let bind_group_layout = context.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
 			entries: bind_group_layout_entries.as_slice(),
@@ -28,8 +30,8 @@ impl Shader {
 			vec![ModelVertex::desc()]
 		};
 
-		let bind_group_layouts = if !bindings.is_empty() {
-			vec![&bind_group_layout, &scene_camera.camera_bind_group_layout, &scene_lighting.light_bind_group_layout]
+		let bind_group_layouts = if !shader_bindings.is_empty() {
+			vec![&scene_camera.camera_bind_group_layout, &scene_lighting.light_bind_group_layout, &bind_group_layout]
 		} else {
 			vec![&scene_camera.camera_bind_group_layout, &scene_lighting.light_bind_group_layout]
 		};
@@ -59,6 +61,7 @@ impl Shader {
 			bind_group_layout,
 			render_pipeline,
 			render_pipeline_layout,
+			shader_bindings,
 		}
 	}
 }

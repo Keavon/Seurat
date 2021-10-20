@@ -8,12 +8,12 @@
 };
 
 // Uniforms
-[[group(0), binding(0)]] var t_diffuse: texture_2d<f32>;
-[[group(0), binding(1)]] var s_diffuse: sampler;
-[[group(0), binding(2)]] var t_normal: texture_2d<f32>;
-[[group(0), binding(3)]] var s_normal: sampler;
-[[group(1), binding(0)]] var<uniform> camera_uniform: CameraUniform;
-[[group(2), binding(0)]] var<uniform> light: Light;
+[[group(0), binding(0)]] var<uniform> camera_uniform: CameraUniform;
+[[group(1), binding(0)]] var<uniform> light: Light;
+[[group(2), binding(0)]] var t_diffuse: texture_2d<f32>;
+[[group(2), binding(1)]] var s_diffuse: sampler;
+[[group(2), binding(2)]] var t_normal: texture_2d<f32>;
+[[group(2), binding(3)]] var s_normal: sampler;
 
 // Attributes
 struct VertexInput {

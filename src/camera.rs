@@ -1,7 +1,11 @@
 use cgmath::{InnerSpace, Matrix4, Point3, Rad, SquareMatrix, Vector3};
 use std::{f32::consts::FRAC_PI_2, time::Duration};
+use wgpu::util::DeviceExt;
+use wgpu::{BindGroup, BindGroupLayout, Buffer};
 use winit::dpi::PhysicalPosition;
 use winit::event::{ElementState, MouseScrollDelta, VirtualKeyCode};
+
+use crate::engine::Context;
 
 const SAFE_FRAC_PI_2: f32 = FRAC_PI_2 - 0.0001;
 
@@ -34,6 +38,68 @@ impl Camera {
 	}
 }
 
+#[derive(Debug)]
+pub struct SceneCamera {
+	pub camera: Camera,
+	pub projection: Projection,
+	pub camera_controller: CameraController,
+	pub camera_uniform: CameraUniform,
+	pub camera_buffer: Buffer,
+	pub camera_bind_group_layout: BindGroupLayout,
+	pub camera_bind_group: BindGroup,
+}
+
+impl SceneCamera {
+	pub fn new(context: &Context) -> Self {
+		let camera = Camera::new((0.0, 5.0, 10.0), cgmath::Deg(-90.0), cgmath::Deg(-20.0));
+		let projection = Projection::new(context.config.width, context.config.height, cgmath::Deg(45.0), 0.1, 100.0);
+		let camera_controller = CameraController::new(4.0, 0.4);
+
+		let mut camera_uniform = CameraUniform::new();
+		camera_uniform.update_view_proj(&camera, &projection);
+
+		let camera_buffer = context.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+			label: Some("Camera Buffer"),
+			contents: bytemuck::cast_slice(&[camera_uniform]),
+			usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+		});
+
+		let camera_bind_group_layout = context.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+			entries: &[wgpu::BindGroupLayoutEntry {
+				binding: 0,
+				visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+				ty: wgpu::BindingType::Buffer {
+					ty: wgpu::BufferBindingType::Uniform,
+					has_dynamic_offset: false,
+					min_binding_size: None,
+				},
+				count: None,
+			}],
+			label: Some("camera_bind_group_layout"),
+		});
+
+		let camera_bind_group = context.device.create_bind_group(&wgpu::BindGroupDescriptor {
+			layout: &camera_bind_group_layout,
+			entries: &[wgpu::BindGroupEntry {
+				binding: 0,
+				resource: camera_buffer.as_entire_binding(),
+			}],
+			label: Some("camera_bind_group"),
+		});
+
+		Self {
+			camera,
+			projection,
+			camera_controller,
+			camera_uniform,
+			camera_buffer,
+			camera_bind_group_layout,
+			camera_bind_group,
+		}
+	}
+}
+
+#[derive(Debug)]
 pub struct Projection {
 	aspect: f32,
 	fovy: Rad<f32>,

@@ -1,5 +1,5 @@
 use crate::behavior::Behavior;
-use crate::camera::Camera;
+use crate::camera::SceneCamera;
 use crate::light::Light;
 use crate::model::Model;
 
@@ -7,6 +7,6 @@ use crate::model::Model;
 pub enum Component {
 	Model(Model),
 	Light(Light),
-	Camera(Camera),
+	Camera(SceneCamera),
 	Behavior(Box<dyn Behavior>),
 }

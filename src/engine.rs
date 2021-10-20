@@ -1,7 +1,7 @@
-use crate::camera::{Camera, CameraController, CameraUniform, Projection};
+use crate::camera::SceneCamera;
 use crate::component::Component;
 use crate::light::LightUniform;
-use crate::material::Material;
+use crate::material::{Material, MaterialDataBinding};
 use crate::mesh::Mesh;
 use crate::model::{Instance, Model};
 use crate::scene::Scene;
@@ -10,7 +10,7 @@ use crate::texture::Texture;
 
 use cgmath::{InnerSpace, Rotation3, Zero};
 use std::path::Path;
-use wgpu::{util::DeviceExt, BindGroup, BindGroupLayout, Buffer};
+use wgpu::{util::DeviceExt, BindGroup, BindGroupLayout};
 use winit::event::{DeviceEvent, ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 use winit::{event_loop::ControlFlow, window::Window};
 
@@ -19,8 +19,8 @@ pub struct Engine {
 	z_buffer: Texture,
 	frame_time: std::time::Instant,
 	scene: Scene,
-	scene_camera: SceneCamera,
-	scene_lighting: SceneLighting,
+	scene_camera: String,
+	scene_lights: SceneLighting,
 	mouse_pressed: bool,
 }
 
@@ -37,7 +37,7 @@ impl Engine {
 		let frame_time = std::time::Instant::now();
 
 		// Camera
-		let scene_camera = SceneCamera::new(&context);
+		let scene_camera = String::from("Main Camera");
 
 		// Lights
 		let scene_lighting = SceneLighting::new(&context);
@@ -51,7 +51,7 @@ impl Engine {
 			frame_time,
 			scene,
 			scene_camera,
-			scene_lighting,
+			scene_lights: scene_lighting,
 			mouse_pressed: false,
 		}
 	}
@@ -63,12 +63,13 @@ impl Engine {
 
 	fn load_resources(&mut self, assets_path: &Path) {
 		// Shaders
-		let light_shader = Shader::new(&self.context, assets_path, "light.wgsl", &[], &self.scene_camera, &self.scene_lighting);
+		let temporary_camera = SceneCamera::new(&self.context);
+		let light_shader = Shader::new(&self.context, assets_path, "light.wgsl", vec![], &temporary_camera, &self.scene_lights);
 		let cube_shader = {
 			let diffuse = ShaderBinding::Texture(ShaderBindingTexture::default());
 			let normal = ShaderBinding::Texture(ShaderBindingTexture::default());
 
-			Shader::new(&self.context, assets_path, "shader.wgsl", &[diffuse, normal], &self.scene_camera, &self.scene_lighting)
+			Shader::new(&self.context, assets_path, "shader.wgsl", vec![diffuse, normal], &temporary_camera, &self.scene_lights)
 		};
 		self.scene.resources.shaders.insert(String::from("light.wgsl"), light_shader);
 		self.scene.resources.shaders.insert(String::from("shader.wgsl"), cube_shader);
@@ -86,12 +87,18 @@ impl Engine {
 		// Materials
 		self.scene.resources.materials.insert(
 			String::from("cube.material"),
-			Material::new(&self.context.device, &self.scene.resources, "cube.material", "shader.wgsl", "cube-diffuse.jpg", "cube-normal.png"),
+			Material::new(
+				"cube.material",
+				"shader.wgsl",
+				vec![MaterialDataBinding::Texture("cube-diffuse.jpg"), MaterialDataBinding::Texture("cube-normal.png")],
+				&self.scene.resources,
+				&self.context.device,
+			),
 		);
-		// self.scene.resources.materials.insert(
-		// 	String::from("lamp.material"),
-		// 	Material::new(&self.context.device, &self.scene.resources, "lamp.material", "light.wgsl", "cube-diffuse.jpg", "cube-normal.png"),
-		// );
+		self.scene.resources.materials.insert(
+			String::from("lamp.material"),
+			Material::new("lamp.material", "light.wgsl", vec![], &self.scene.resources, &self.context.device),
+		);
 
 		// Meshes
 		let meshes = Mesh::load(&self.context.device, &self.context.queue, assets_path, "cube.obj");
@@ -101,16 +108,20 @@ impl Engine {
 	}
 
 	fn load_scene(&mut self) {
+		// Main camera
+		let main_camera = self.scene.root.new_child("Main Camera");
+		main_camera.add_component(Component::Camera(SceneCamera::new(&self.context)));
+
 		// White cube representing the light
 		let lamp = self.scene.root.new_child("Lamp Model");
 
-		let mut lamp_model = Model::new(&self.scene.resources, ("cube.obj", "Cube_Finished_Cube.001"), "cube.material");
+		let mut lamp_model = Model::new(&self.scene.resources, ("cube.obj", "Cube_Finished_Cube.001"), "lamp.material");
 		lamp_model.instances.instance_list[0].position.y = 4.;
 		lamp_model.instances.update_buffer(&self.context.device);
 		lamp.add_component(Component::Model(lamp_model));
 
-		let light_cube_movement = crate::scripts::light_cube_movement::LightCubeMovement;
-		lamp.add_component(Component::Behavior(Box::new(light_cube_movement)));
+		// let light_cube_movement = crate::scripts::light_cube_movement::LightCubeMovement;
+		// lamp.add_component(Component::Behavior(Box::new(light_cube_movement)));
 
 		// Array of cubes
 		let cubes = self.scene.root.new_child("Cubes");
@@ -148,7 +159,9 @@ impl Engine {
 			self.context.config.height = new_size.height;
 			self.context.surface.configure(&self.context.device, &self.context.config);
 
-			self.scene_camera.projection.resize(new_size.width, new_size.height);
+			self.scene.find_entity_mut(self.scene_camera.as_str()).unwrap().get_cameras_mut()[0]
+				.projection
+				.resize(new_size.width, new_size.height);
 
 			self.z_buffer = Texture::create_z_buffer(&self.context.device, &self.context.config, "Z buffer texture");
 		}
@@ -160,11 +173,15 @@ impl Engine {
 			DeviceEvent::Key(KeyboardInput {
 				virtual_keycode: Some(key), state, ..
 			}) => {
-				self.scene_camera.camera_controller.process_keyboard(*key, *state);
+				self.scene.find_entity_mut(self.scene_camera.as_str()).unwrap().get_cameras_mut()[0]
+					.camera_controller
+					.process_keyboard(*key, *state);
 			}
 			// Scroll wheel movement
 			DeviceEvent::MouseWheel { delta, .. } => {
-				self.scene_camera.camera_controller.process_scroll(delta);
+				self.scene.find_entity_mut(self.scene_camera.as_str()).unwrap().get_cameras_mut()[0]
+					.camera_controller
+					.process_scroll(delta);
 			}
 			// LMB
 			DeviceEvent::Button { button: 1, state } => {
@@ -173,7 +190,9 @@ impl Engine {
 			// Mouse movement
 			DeviceEvent::MouseMotion { delta } => {
 				if self.mouse_pressed {
-					self.scene_camera.camera_controller.process_mouse(delta.0, delta.1);
+					self.scene.find_entity_mut(self.scene_camera.as_str()).unwrap().get_cameras_mut()[0]
+						.camera_controller
+						.process_mouse(delta.0, delta.1);
 				}
 			}
 			_ => {}
@@ -224,22 +243,22 @@ impl Engine {
 
 	fn update(&mut self, delta_time: std::time::Duration) {
 		// Camera
-		self.scene_camera.camera_controller.update_camera(&mut self.scene_camera.camera, delta_time);
-		self.scene_camera.camera_uniform.update_view_proj(&self.scene_camera.camera, &self.scene_camera.projection);
-		self.context
-			.queue
-			.write_buffer(&self.scene_camera.camera_buffer, 0, bytemuck::cast_slice(&[self.scene_camera.camera_uniform]));
+		let scene_cam = &mut self.scene.find_entity_mut(self.scene_camera.as_str()).unwrap().get_cameras_mut();
+		let scene_camera = &mut scene_cam[0];
+		scene_camera.camera_controller.update_camera(&mut scene_camera.camera, delta_time);
+		scene_camera.camera_uniform.update_view_proj(&scene_camera.camera, &scene_camera.projection);
+		self.context.queue.write_buffer(&scene_camera.camera_buffer, 0, bytemuck::cast_slice(&[scene_camera.camera_uniform]));
 
 		// Light
-		let old_position: cgmath::Vector3<_> = self.scene_lighting.light_uniform.position.into();
+		let old_position: cgmath::Vector3<_> = self.scene_lights.light_uniform.position.into();
 		let new_position = cgmath::Quaternion::from_axis_angle((0.0, 1.0, 0.0).into(), cgmath::Deg(60.0 * delta_time.as_secs_f32())) * old_position;
-		self.scene_lighting.light_uniform.position = new_position.into();
+		self.scene_lights.light_uniform.position = new_position.into();
 		self.context
 			.queue
-			.write_buffer(&self.scene_lighting.light_buffer, 0, bytemuck::cast_slice(&[self.scene_lighting.light_uniform]));
+			.write_buffer(&self.scene_lights.light_buffer, 0, bytemuck::cast_slice(&[self.scene_lights.light_uniform]));
 
 		self.scene.root.update_behaviors_of_descendants();
-		let lamp_model = self.scene.root.find_descendant_mut("Lamp Model").unwrap();
+		let lamp_model = self.scene.find_entity_mut("Lamp Model").unwrap();
 		let location = lamp_model.transform.location;
 		let rotation = lamp_model.transform.rotation;
 
@@ -281,7 +300,8 @@ impl Engine {
 				if let Component::Model(model) = component {
 					let mesh = &self.scene.resources.meshes[model.mesh];
 					let material = &self.scene.resources.materials[model.material];
-					let shader = &self.scene.resources.shaders[material.shader];
+					let shader = &self.scene.resources.shaders[material.shader_id];
+					let scene_camera = self.scene.find_entity(self.scene_camera.as_str()).unwrap().get_cameras()[0];
 
 					let instances_buffer = model.instances.instances_buffer.as_ref();
 					let instances_range = 0..model.instances.instance_list.len() as u32;
@@ -293,9 +313,9 @@ impl Engine {
 
 					render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
 
-					render_pass.set_bind_group(0, &material.bind_group, &[]);
-					render_pass.set_bind_group(1, &self.scene_camera.camera_bind_group, &[]);
-					render_pass.set_bind_group(2, &self.scene_lighting.light_bind_group, &[]);
+					render_pass.set_bind_group(0, &scene_camera.camera_bind_group, &[]);
+					render_pass.set_bind_group(1, &self.scene_lights.light_bind_group, &[]);
+					render_pass.set_bind_group(2, &material.bind_group, &[]);
 
 					render_pass.draw_indexed(0..mesh.index_count, 0, instances_range);
 				}
@@ -418,66 +438,6 @@ impl SceneLighting {
 			light_buffer,
 			light_bind_group_layout,
 			light_bind_group,
-		}
-	}
-}
-
-pub struct SceneCamera {
-	pub camera: Camera,
-	pub projection: Projection,
-	pub camera_controller: CameraController,
-	pub camera_uniform: CameraUniform,
-	pub camera_buffer: Buffer,
-	pub camera_bind_group_layout: BindGroupLayout,
-	pub camera_bind_group: BindGroup,
-}
-
-impl SceneCamera {
-	pub fn new(context: &Context) -> Self {
-		let camera = Camera::new((0.0, 5.0, 10.0), cgmath::Deg(-90.0), cgmath::Deg(-20.0));
-		let projection = Projection::new(context.config.width, context.config.height, cgmath::Deg(45.0), 0.1, 100.0);
-		let camera_controller = CameraController::new(4.0, 0.4);
-
-		let mut camera_uniform = CameraUniform::new();
-		camera_uniform.update_view_proj(&camera, &projection);
-
-		let camera_buffer = context.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-			label: Some("Camera Buffer"),
-			contents: bytemuck::cast_slice(&[camera_uniform]),
-			usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-		});
-
-		let camera_bind_group_layout = context.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-			entries: &[wgpu::BindGroupLayoutEntry {
-				binding: 0,
-				visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-				ty: wgpu::BindingType::Buffer {
-					ty: wgpu::BufferBindingType::Uniform,
-					has_dynamic_offset: false,
-					min_binding_size: None,
-				},
-				count: None,
-			}],
-			label: Some("camera_bind_group_layout"),
-		});
-
-		let camera_bind_group = context.device.create_bind_group(&wgpu::BindGroupDescriptor {
-			layout: &camera_bind_group_layout,
-			entries: &[wgpu::BindGroupEntry {
-				binding: 0,
-				resource: camera_buffer.as_entire_binding(),
-			}],
-			label: Some("camera_bind_group"),
-		});
-
-		Self {
-			camera,
-			projection,
-			camera_controller,
-			camera_uniform,
-			camera_buffer,
-			camera_bind_group_layout,
-			camera_bind_group,
 		}
 	}
 }

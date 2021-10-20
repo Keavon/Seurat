@@ -1,6 +1,8 @@
-use rayon::vec;
-
+use crate::behavior::Behavior;
+use crate::camera::SceneCamera;
 use crate::component::Component;
+use crate::light::Light;
+use crate::model::Model;
 use crate::transform::Transform;
 
 #[derive(Debug)]
@@ -58,6 +60,86 @@ impl Entity {
 
 	pub fn find_descendant_mut(&mut self, name: &str) -> Option<&mut Entity> {
 		self.children.iter_mut().find(|entity| entity.name == name)
+	}
+
+	pub fn get_models(&self) -> Vec<&Model> {
+		self.components
+			.iter()
+			.filter_map(|component| match component {
+				Component::Model(model) => Some(model),
+				_ => None,
+			})
+			.collect()
+	}
+
+	pub fn get_models_mut(&mut self) -> Vec<&mut Model> {
+		self.components
+			.iter_mut()
+			.filter_map(|component| match component {
+				Component::Model(model) => Some(model),
+				_ => None,
+			})
+			.collect()
+	}
+
+	pub fn get_lights(&self) -> Vec<&Light> {
+		self.components
+			.iter()
+			.filter_map(|component| match component {
+				Component::Light(light) => Some(light),
+				_ => None,
+			})
+			.collect()
+	}
+
+	pub fn get_lights_mut(&mut self) -> Vec<&mut Light> {
+		self.components
+			.iter_mut()
+			.filter_map(|component| match component {
+				Component::Light(light) => Some(light),
+				_ => None,
+			})
+			.collect()
+	}
+
+	pub fn get_cameras(&self) -> Vec<&SceneCamera> {
+		self.components
+			.iter()
+			.filter_map(|component| match component {
+				Component::Camera(camera) => Some(camera),
+				_ => None,
+			})
+			.collect()
+	}
+
+	pub fn get_cameras_mut(&mut self) -> Vec<&mut SceneCamera> {
+		self.components
+			.iter_mut()
+			.filter_map(|component| match component {
+				Component::Camera(camera) => Some(camera),
+				_ => None,
+			})
+			.collect()
+	}
+
+	pub fn get_behavior(&self) -> Vec<&Box<dyn Behavior>> {
+		self.components
+			.iter()
+			.filter_map(|component| match component {
+				Component::Behavior(behavior) => Some(behavior),
+				_ => None,
+			})
+			.collect()
+	}
+
+	pub fn get_behavior_mut(&mut self) -> Vec<&mut Box<dyn Behavior>> {
+		self.components
+			.iter_mut()
+			.filter_map(|component| match component {
+				Component::Behavior(behavior) => Some(behavior),
+				_ => None,
+			})
+			.collect()
 	}
 }
 
