@@ -1,8 +1,10 @@
 mod behavior;
 mod camera;
+mod camera_controller;
 mod component;
 mod engine;
 mod entity;
+mod instance;
 mod light;
 mod material;
 mod mesh;

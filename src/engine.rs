@@ -1,9 +1,11 @@
 use crate::camera::SceneCamera;
+use crate::camera_controller::CameraController;
 use crate::component::Component;
+use crate::instance::Instance;
 use crate::light::LightUniform;
 use crate::material::{Material, MaterialDataBinding};
 use crate::mesh::Mesh;
-use crate::model::{Instance, Model};
+use crate::model::Model;
 use crate::scene::Scene;
 use crate::shader::{Shader, ShaderBinding, ShaderBindingTexture};
 use crate::texture::Texture;
@@ -19,8 +21,9 @@ pub struct Engine {
 	z_buffer: Texture,
 	frame_time: std::time::Instant,
 	scene: Scene,
-	scene_camera: String,
-	scene_lights: SceneLighting,
+	active_camera: String,
+	camera_controller: CameraController,
+	scene_lighting: SceneLighting,
 	mouse_pressed: bool,
 }
 
@@ -37,7 +40,8 @@ impl Engine {
 		let frame_time = std::time::Instant::now();
 
 		// Camera
-		let scene_camera = String::from("Main Camera");
+		let active_camera = String::from("Main Camera");
+		let camera_controller = CameraController::new(4.0, 0.4);
 
 		// Lights
 		let scene_lighting = SceneLighting::new(&context);
@@ -50,8 +54,9 @@ impl Engine {
 			z_buffer,
 			frame_time,
 			scene,
-			scene_camera,
-			scene_lights: scene_lighting,
+			active_camera,
+			camera_controller,
+			scene_lighting,
 			mouse_pressed: false,
 		}
 	}
@@ -64,15 +69,15 @@ impl Engine {
 	fn load_resources(&mut self, assets_path: &Path) {
 		// Shaders
 		let temporary_camera = SceneCamera::new(&self.context);
-		let light_shader = Shader::new(&self.context, assets_path, "light.wgsl", vec![], &temporary_camera, &self.scene_lights);
+		let light_shader = Shader::new(&self.context, assets_path, "lamp.wgsl", vec![], &temporary_camera, &self.scene_lighting);
 		let cube_shader = {
 			let diffuse = ShaderBinding::Texture(ShaderBindingTexture::default());
 			let normal = ShaderBinding::Texture(ShaderBindingTexture::default());
 
-			Shader::new(&self.context, assets_path, "shader.wgsl", vec![diffuse, normal], &temporary_camera, &self.scene_lights)
+			Shader::new(&self.context, assets_path, "cube.wgsl", vec![diffuse, normal], &temporary_camera, &self.scene_lighting)
 		};
-		self.scene.resources.shaders.insert(String::from("light.wgsl"), light_shader);
-		self.scene.resources.shaders.insert(String::from("shader.wgsl"), cube_shader);
+		self.scene.resources.shaders.insert(String::from("lamp.wgsl"), light_shader);
+		self.scene.resources.shaders.insert(String::from("cube.wgsl"), cube_shader);
 
 		// Textures
 		self.scene.resources.textures.insert(
@@ -89,7 +94,7 @@ impl Engine {
 			String::from("cube.material"),
 			Material::new(
 				"cube.material",
-				"shader.wgsl",
+				"cube.wgsl",
 				vec![MaterialDataBinding::Texture("cube-diffuse.jpg"), MaterialDataBinding::Texture("cube-normal.png")],
 				&self.scene.resources,
 				&self.context.device,
@@ -97,7 +102,7 @@ impl Engine {
 		);
 		self.scene.resources.materials.insert(
 			String::from("lamp.material"),
-			Material::new("lamp.material", "light.wgsl", vec![], &self.scene.resources, &self.context.device),
+			Material::new("lamp.material", "lamp.wgsl", vec![], &self.scene.resources, &self.context.device),
 		);
 
 		// Meshes
@@ -120,8 +125,8 @@ impl Engine {
 		lamp_model.instances.update_buffer(&self.context.device);
 		lamp.add_component(Component::Model(lamp_model));
 
-		// let light_cube_movement = crate::scripts::light_cube_movement::LightCubeMovement;
-		// lamp.add_component(Component::Behavior(Box::new(light_cube_movement)));
+		let light_cube_movement = crate::scripts::light_cube_movement::LightCubeMovement;
+		lamp.add_component(Component::Behavior(Box::new(light_cube_movement)));
 
 		// Array of cubes
 		let cubes = self.scene.root.new_child("Cubes");
@@ -159,7 +164,7 @@ impl Engine {
 			self.context.config.height = new_size.height;
 			self.context.surface.configure(&self.context.device, &self.context.config);
 
-			self.scene.find_entity_mut(self.scene_camera.as_str()).unwrap().get_cameras_mut()[0]
+			self.scene.find_entity_mut(self.active_camera.as_str()).unwrap().get_cameras_mut()[0]
 				.projection
 				.resize(new_size.width, new_size.height);
 
@@ -173,15 +178,13 @@ impl Engine {
 			DeviceEvent::Key(KeyboardInput {
 				virtual_keycode: Some(key), state, ..
 			}) => {
-				self.scene.find_entity_mut(self.scene_camera.as_str()).unwrap().get_cameras_mut()[0]
-					.camera_controller
-					.process_keyboard(*key, *state);
+				// self.scene.find_entity_mut(self.active_camera.as_str()).unwrap().get_cameras_mut()[0]
+				self.camera_controller.process_keyboard(*key, *state);
 			}
 			// Scroll wheel movement
 			DeviceEvent::MouseWheel { delta, .. } => {
-				self.scene.find_entity_mut(self.scene_camera.as_str()).unwrap().get_cameras_mut()[0]
-					.camera_controller
-					.process_scroll(delta);
+				// self.scene.find_entity_mut(self.active_camera.as_str()).unwrap().get_cameras_mut()[0]
+				self.camera_controller.process_scroll(delta);
 			}
 			// LMB
 			DeviceEvent::Button { button: 1, state } => {
@@ -190,9 +193,8 @@ impl Engine {
 			// Mouse movement
 			DeviceEvent::MouseMotion { delta } => {
 				if self.mouse_pressed {
-					self.scene.find_entity_mut(self.scene_camera.as_str()).unwrap().get_cameras_mut()[0]
-						.camera_controller
-						.process_mouse(delta.0, delta.1);
+					// self.scene.find_entity_mut(self.active_camera.as_str()).unwrap().get_cameras_mut()[0]
+					self.camera_controller.process_mouse(delta.0, delta.1);
 				}
 			}
 			_ => {}
@@ -243,30 +245,29 @@ impl Engine {
 
 	fn update(&mut self, delta_time: std::time::Duration) {
 		// Camera
-		let scene_cam = &mut self.scene.find_entity_mut(self.scene_camera.as_str()).unwrap().get_cameras_mut();
-		let scene_camera = &mut scene_cam[0];
-		scene_camera.camera_controller.update_camera(&mut scene_camera.camera, delta_time);
-		scene_camera.camera_uniform.update_view_proj(&scene_camera.camera, &scene_camera.projection);
+		let scene_camera = &mut self.scene.find_entity_mut(self.active_camera.as_str()).unwrap().get_cameras_mut()[0];
+		self.camera_controller.update_camera(scene_camera, delta_time);
+		scene_camera.update_view_proj();
 		self.context.queue.write_buffer(&scene_camera.camera_buffer, 0, bytemuck::cast_slice(&[scene_camera.camera_uniform]));
 
 		// Light
-		let old_position: cgmath::Vector3<_> = self.scene_lights.light_uniform.position.into();
+		let old_position: cgmath::Vector3<_> = self.scene_lighting.light_uniform.position.into();
 		let new_position = cgmath::Quaternion::from_axis_angle((0.0, 1.0, 0.0).into(), cgmath::Deg(60.0 * delta_time.as_secs_f32())) * old_position;
-		self.scene_lights.light_uniform.position = new_position.into();
+		self.scene_lighting.light_uniform.position = new_position.into();
 		self.context
 			.queue
-			.write_buffer(&self.scene_lights.light_buffer, 0, bytemuck::cast_slice(&[self.scene_lights.light_uniform]));
+			.write_buffer(&self.scene_lighting.light_buffer, 0, bytemuck::cast_slice(&[self.scene_lighting.light_uniform]));
 
+		// Call update() on all entity behaviors
 		self.scene.root.update_behaviors_of_descendants();
-		let lamp_model = self.scene.find_entity_mut("Lamp Model").unwrap();
-		let location = lamp_model.transform.location;
-		let rotation = lamp_model.transform.rotation;
 
-		for component in &mut lamp_model.components {
-			if let Component::Model(model) = component {
-				model.instances.transform_single_instance(location, rotation, &self.context.device);
-			}
-		}
+		// TODO: Remove this hack used to set the lamp model instance to its entity's transform
+		// let lamp_model = self.scene.find_entity_mut("Lamp Model").unwrap();
+		// let location = lamp_model.transform.location;
+		// let rotation = lamp_model.transform.rotation;
+		// for model in &mut lamp_model.get_models_mut() {
+		// 	model.instances.transform_single_instance(location, rotation, &self.context.device);
+		// }
 	}
 
 	fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -301,7 +302,7 @@ impl Engine {
 					let mesh = &self.scene.resources.meshes[model.mesh];
 					let material = &self.scene.resources.materials[model.material];
 					let shader = &self.scene.resources.shaders[material.shader_id];
-					let scene_camera = self.scene.find_entity(self.scene_camera.as_str()).unwrap().get_cameras()[0];
+					let scene_camera = self.scene.find_entity(self.active_camera.as_str()).unwrap().get_cameras()[0];
 
 					let instances_buffer = model.instances.instances_buffer.as_ref();
 					let instances_range = 0..model.instances.instance_list.len() as u32;
@@ -314,7 +315,7 @@ impl Engine {
 					render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
 
 					render_pass.set_bind_group(0, &scene_camera.camera_bind_group, &[]);
-					render_pass.set_bind_group(1, &self.scene_lights.light_bind_group, &[]);
+					render_pass.set_bind_group(1, &self.scene_lighting.light_bind_group, &[]);
 					render_pass.set_bind_group(2, &material.bind_group, &[]);
 
 					render_pass.draw_indexed(0..mesh.index_count, 0, instances_range);

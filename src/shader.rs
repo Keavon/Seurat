@@ -1,7 +1,7 @@
 use crate::camera::SceneCamera;
 use crate::engine::{Context, SceneLighting};
+use crate::instance::InstanceRaw;
 use crate::mesh::{ModelVertex, Vertex};
-use crate::model::InstanceRaw;
 use crate::texture::Texture;
 
 use std::path::Path;
@@ -17,30 +17,18 @@ pub struct Shader {
 impl Shader {
 	pub fn new(context: &Context, directory: &Path, file: &str, shader_bindings: Vec<ShaderBinding>, scene_camera: &SceneCamera, scene_lighting: &SceneLighting) -> Self {
 		let bind_group_layout_entries = build_bind_group_layout_entries(shader_bindings.as_slice());
-
 		let bind_group_layout = context.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
 			entries: bind_group_layout_entries.as_slice(),
 			label: Some(format!("Shader \"{}\" bind group layout", file).as_str()),
 		});
-
-		// TODO: Remove this hacky check
-		let vertex_layouts = if file == "shader.wgsl" {
-			vec![ModelVertex::desc(), InstanceRaw::desc()]
-		} else {
-			vec![ModelVertex::desc()]
-		};
-
-		let bind_group_layouts = if !shader_bindings.is_empty() {
-			vec![&scene_camera.camera_bind_group_layout, &scene_lighting.light_bind_group_layout, &bind_group_layout]
-		} else {
-			vec![&scene_camera.camera_bind_group_layout, &scene_lighting.light_bind_group_layout]
-		};
-
+		let bind_group_layouts = &[&scene_camera.camera_bind_group_layout, &scene_lighting.light_bind_group_layout, &bind_group_layout];
 		let render_pipeline_layout = context.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 			label: Some(format!("Shader \"{}\" render pipeline layout", file).as_str()),
-			bind_group_layouts: bind_group_layouts.as_slice(),
+			bind_group_layouts,
 			push_constant_ranges: &[],
 		});
+
+		let vertex_layouts = &[ModelVertex::layout(), InstanceRaw::layout()];
 
 		let shader_path = directory.join("shaders").join(file);
 		let shader_code = std::fs::read_to_string(shader_path).unwrap();
@@ -50,7 +38,7 @@ impl Shader {
 			&render_pipeline_layout,
 			context.config.format,
 			Some(Texture::DEPTH_FORMAT),
-			vertex_layouts.as_slice(),
+			vertex_layouts,
 			wgpu::ShaderModuleDescriptor {
 				label: Some(format!("Shader \"{}\" module descriptor", file).as_str()),
 				source: wgpu::ShaderSource::Wgsl(shader_code.into()),

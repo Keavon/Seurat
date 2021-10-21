@@ -122,7 +122,7 @@ impl Entity {
 			.collect()
 	}
 
-	pub fn get_behavior(&self) -> Vec<&Box<dyn Behavior>> {
+	pub fn get_behaviors(&self) -> Vec<&Box<dyn Behavior>> {
 		self.components
 			.iter()
 			.filter_map(|component| match component {
@@ -132,7 +132,7 @@ impl Entity {
 			.collect()
 	}
 
-	pub fn get_behavior_mut(&mut self) -> Vec<&mut Box<dyn Behavior>> {
+	pub fn get_behaviors_mut(&mut self) -> Vec<&mut Box<dyn Behavior>> {
 		self.components
 			.iter_mut()
 			.filter_map(|component| match component {

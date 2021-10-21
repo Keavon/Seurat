@@ -17,7 +17,7 @@ impl Texture {
 			height: config.height,
 			depth_or_array_layers: 1,
 		};
-		let desc = wgpu::TextureDescriptor {
+		let texture_descriptor = wgpu::TextureDescriptor {
 			label: Some(label),
 			size,
 			mip_level_count: 1,
@@ -26,7 +26,7 @@ impl Texture {
 			format: Self::DEPTH_FORMAT,
 			usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
 		};
-		let texture = device.create_texture(&desc);
+		let texture = device.create_texture(&texture_descriptor);
 
 		let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 		let sampler = device.create_sampler(&wgpu::SamplerDescriptor {

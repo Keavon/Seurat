@@ -1,12 +1,9 @@
-use crate::material::Material;
-use crate::model::Model;
-
 use anyhow::Result;
 use cgmath::InnerSpace;
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
-use std::{mem, ops::Range, path::Path};
+use std::{mem, path::Path};
 use tobj::LoadOptions;
-use wgpu::{util::DeviceExt, RenderPass};
+use wgpu::util::DeviceExt;
 
 pub struct Mesh {
 	pub name: String,
@@ -27,7 +24,7 @@ impl Mesh {
 				..Default::default()
 			},
 		)?;
-		let obj_materials = obj_materials?;
+		// let obj_materials = obj_materials?;
 
 		let meshes = obj_models
 			.par_iter()
@@ -131,7 +128,7 @@ impl Mesh {
 }
 
 pub trait Vertex {
-	fn desc<'a>() -> wgpu::VertexBufferLayout<'a>;
+	fn layout<'a>() -> wgpu::VertexBufferLayout<'a>;
 }
 
 #[repr(C)]
@@ -145,7 +142,7 @@ pub struct ModelVertex {
 }
 
 impl Vertex for ModelVertex {
-	fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
+	fn layout<'a>() -> wgpu::VertexBufferLayout<'a> {
 		wgpu::VertexBufferLayout {
 			array_stride: mem::size_of::<ModelVertex>() as wgpu::BufferAddress,
 			step_mode: wgpu::VertexStepMode::Vertex,
