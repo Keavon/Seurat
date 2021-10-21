@@ -16,10 +16,12 @@ impl Instances {
 		}
 	}
 
-	pub fn transform_single_instance(&mut self, position: cgmath::Point3<f64>, rotation: cgmath::Quaternion<f64>, device: &Device) {
-		let position = cgmath::Vector3::new(position.x as f32, position.y as f32, position.z as f32);
+	pub fn transform_single_instance(&mut self, location: cgmath::Point3<f64>, rotation: cgmath::Quaternion<f64>, scale: cgmath::Point3<f64>, device: &Device) {
+		let location = cgmath::Vector3::new(location.x as f32, location.y as f32, location.z as f32);
 		let rotation = cgmath::Quaternion::new(rotation.s as f32, rotation.v.x as f32, rotation.v.y as f32, rotation.v.z as f32);
-		self.instance_list = vec![Instance { position, rotation }];
+		let scale = cgmath::Vector3::new(scale.x as f32, scale.y as f32, scale.z as f32);
+
+		self.instance_list = vec![Instance { location, rotation, scale }];
 		self.update_buffer(device);
 	}
 
@@ -44,22 +46,23 @@ impl Default for Instances {
 
 #[derive(Debug)]
 pub struct Instance {
-	pub position: cgmath::Vector3<f32>,
+	pub location: cgmath::Vector3<f32>,
 	pub rotation: cgmath::Quaternion<f32>,
+	pub scale: cgmath::Vector3<f32>,
 }
 
 impl Instance {
 	pub fn new() -> Self {
 		Self {
-			position: cgmath::Vector3::new(0., 0., 0.),
+			location: cgmath::Vector3::new(0., 0., 0.),
 			rotation: cgmath::Quaternion::new(1., 0., 0., 0.),
+			scale: cgmath::Vector3::new(1., 1., 1.),
 		}
 	}
 
 	pub fn to_raw(&self) -> InstanceRaw {
 		InstanceRaw {
-			model: (cgmath::Matrix4::from_translation(self.position) * cgmath::Matrix4::from(self.rotation)).into(),
-			normal: cgmath::Matrix3::from(self.rotation).into(),
+			model: (cgmath::Matrix4::from_translation(self.location) * cgmath::Matrix4::from(self.rotation) * cgmath::Matrix4::from_nonuniform_scale(self.scale.x, self.scale.y, self.scale.z)).into(),
 		}
 	}
 }
@@ -74,7 +77,6 @@ impl Default for Instance {
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct InstanceRaw {
 	model: [[f32; 4]; 4],
-	normal: [[f32; 3]; 3],
 }
 
 impl InstanceRaw {
@@ -114,24 +116,6 @@ impl InstanceRaw {
 					offset: std::mem::size_of::<[f32; 12]>() as wgpu::BufferAddress,
 					shader_location: 8,
 					format: wgpu::VertexFormat::Float32x4,
-				},
-				// normal matrix (1/3)
-				wgpu::VertexAttribute {
-					offset: std::mem::size_of::<[f32; 16]>() as wgpu::BufferAddress,
-					shader_location: 9,
-					format: wgpu::VertexFormat::Float32x3,
-				},
-				// normal matrix (2/3)
-				wgpu::VertexAttribute {
-					offset: std::mem::size_of::<[f32; 19]>() as wgpu::BufferAddress,
-					shader_location: 10,
-					format: wgpu::VertexFormat::Float32x3,
-				},
-				// normal matrix (3/3)
-				wgpu::VertexAttribute {
-					offset: std::mem::size_of::<[f32; 22]>() as wgpu::BufferAddress,
-					shader_location: 11,
-					format: wgpu::VertexFormat::Float32x3,
 				},
 			],
 		}

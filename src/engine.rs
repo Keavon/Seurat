@@ -2,7 +2,7 @@ use crate::camera::SceneCamera;
 use crate::camera_controller::CameraController;
 use crate::component::Component;
 use crate::instance::Instance;
-use crate::light::LightUniform;
+use crate::light::SceneLighting;
 use crate::material::{Material, MaterialDataBinding};
 use crate::mesh::Mesh;
 use crate::model::Model;
@@ -12,7 +12,6 @@ use crate::texture::Texture;
 
 use cgmath::{InnerSpace, Rotation3, Zero};
 use std::path::Path;
-use wgpu::{util::DeviceExt, BindGroup, BindGroupLayout};
 use winit::event::{DeviceEvent, ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 use winit::{event_loop::ControlFlow, window::Window};
 
@@ -121,7 +120,7 @@ impl Engine {
 		let lamp = self.scene.root.new_child("Lamp Model");
 
 		let mut lamp_model = Model::new(&self.scene.resources, ("cube.obj", "Cube_Finished_Cube.001"), "lamp.material");
-		lamp_model.instances.instance_list[0].position.y = 4.;
+		lamp_model.instances.instance_list[0].location.y = 4.;
 		lamp_model.instances.update_buffer(&self.context.device);
 		lamp.add_component(Component::Model(lamp_model));
 
@@ -141,15 +140,17 @@ impl Engine {
 					let x = SPACE_BETWEEN * (x as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
 					let z = SPACE_BETWEEN * (z as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
 
-					let position = cgmath::Vector3 { x, y: 0.0, z };
+					let location = cgmath::Vector3 { x, y: 0., z };
 
-					let rotation = if position.is_zero() {
+					let rotation = if location.is_zero() {
 						cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0))
 					} else {
-						cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(45.0))
+						cgmath::Quaternion::from_axis_angle(location.normalize(), cgmath::Deg(45.0))
 					};
 
-					Instance { position, rotation }
+					let scale = cgmath::Vector3 { x: 1., y: 1., z: 1. };
+
+					Instance { location, rotation, scale }
 				})
 			})
 			.collect::<Vec<_>>();
@@ -247,13 +248,13 @@ impl Engine {
 		// Camera
 		let scene_camera = &mut self.scene.find_entity_mut(self.active_camera.as_str()).unwrap().get_cameras_mut()[0];
 		self.camera_controller.update_camera(scene_camera, delta_time);
-		scene_camera.update_view_proj();
+		scene_camera.update_v_p_matrices();
 		self.context.queue.write_buffer(&scene_camera.camera_buffer, 0, bytemuck::cast_slice(&[scene_camera.camera_uniform]));
 
 		// Light
-		let old_position: cgmath::Vector3<_> = self.scene_lighting.light_uniform.position.into();
+		let old_position: cgmath::Vector3<_> = self.scene_lighting.light_uniform.location.into();
 		let new_position = cgmath::Quaternion::from_axis_angle((0.0, 1.0, 0.0).into(), cgmath::Deg(60.0 * delta_time.as_secs_f32())) * old_position;
-		self.scene_lighting.light_uniform.position = new_position.into();
+		self.scene_lighting.light_uniform.location = new_position.into();
 		self.context
 			.queue
 			.write_buffer(&self.scene_lighting.light_buffer, 0, bytemuck::cast_slice(&[self.scene_lighting.light_uniform]));
@@ -386,59 +387,5 @@ impl Context {
 		surface.configure(&device, &config);
 
 		Self { surface, device, queue, config }
-	}
-}
-
-pub struct SceneLighting {
-	pub light_uniform: LightUniform,
-	pub light_buffer: wgpu::Buffer,
-	pub light_bind_group_layout: BindGroupLayout,
-	pub light_bind_group: BindGroup,
-}
-
-impl SceneLighting {
-	pub fn new(context: &Context) -> Self {
-		let light_uniform = LightUniform {
-			position: [2.0, 2.0, 2.0],
-			_padding: 0,
-			color: [1.0, 1.0, 1.0],
-		};
-
-		// We'll want to update our lights position, so we use COPY_DST
-		let light_buffer = context.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-			label: Some("Light VB"),
-			contents: bytemuck::cast_slice(&[light_uniform]),
-			usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-		});
-
-		let light_bind_group_layout = context.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-			entries: &[wgpu::BindGroupLayoutEntry {
-				binding: 0,
-				visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-				ty: wgpu::BindingType::Buffer {
-					ty: wgpu::BufferBindingType::Uniform,
-					has_dynamic_offset: false,
-					min_binding_size: None,
-				},
-				count: None,
-			}],
-			label: None,
-		});
-
-		let light_bind_group = context.device.create_bind_group(&wgpu::BindGroupDescriptor {
-			layout: &light_bind_group_layout,
-			entries: &[wgpu::BindGroupEntry {
-				binding: 0,
-				resource: light_buffer.as_entire_binding(),
-			}],
-			label: None,
-		});
-
-		Self {
-			light_uniform,
-			light_buffer,
-			light_bind_group_layout,
-			light_bind_group,
-		}
 	}
 }

@@ -1,6 +1,7 @@
 use crate::camera::SceneCamera;
-use crate::engine::{Context, SceneLighting};
+use crate::engine::Context;
 use crate::instance::InstanceRaw;
+use crate::light::SceneLighting;
 use crate::mesh::{ModelVertex, Vertex};
 use crate::texture::Texture;
 

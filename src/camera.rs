@@ -14,7 +14,7 @@ pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
 
 #[derive(Debug)]
 pub struct SceneCamera {
-	pub position: Point3<f32>,
+	pub location: Point3<f32>,
 	pub pitch: Rad<f32>,
 	pub yaw: Rad<f32>,
 	pub projection: Projection,
@@ -26,15 +26,15 @@ pub struct SceneCamera {
 
 impl SceneCamera {
 	pub fn new(context: &Context) -> Self {
-		let position: Point3<f32> = (0.0, 5.0, 10.0).into();
+		let mut camera_uniform = CameraUniform::new();
+
+		let location: Point3<f32> = (0.0, 5.0, 10.0).into();
 		let pitch: Rad<f32> = cgmath::Deg(-20.0).into();
 		let yaw: Rad<f32> = cgmath::Deg(-90.0).into();
-		let projection = Projection::new(context.config.width, context.config.height, cgmath::Deg(45.0), 0.1, 100.0);
+		camera_uniform.v_matrix = Self::calculate_v_matrix(location, pitch, yaw).into();
 
-		let mut camera_uniform = CameraUniform::new();
-		camera_uniform.view_position = position.to_homogeneous().into();
-		let calc_matrix = Matrix4::look_to_rh(position, Vector3::new(yaw.0.cos(), pitch.0.sin(), yaw.0.sin()).normalize(), Vector3::unit_y());
-		camera_uniform.view_proj = (projection.calc_matrix() * calc_matrix).into();
+		let projection = Projection::new(context.config.width, context.config.height, cgmath::Deg(45.0), 0.1, 100.0);
+		camera_uniform.p_matrix = projection.p_matrix().into();
 
 		let camera_buffer = context.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
 			label: Some("Camera Buffer"),
@@ -66,7 +66,7 @@ impl SceneCamera {
 		});
 
 		Self {
-			position,
+			location,
 			pitch,
 			yaw,
 			projection,
@@ -77,13 +77,13 @@ impl SceneCamera {
 		}
 	}
 
-	pub fn update_view_proj(&mut self) {
-		self.camera_uniform.view_position = self.position.to_homogeneous().into();
-		self.camera_uniform.view_proj = (self.projection.calc_matrix() * self.calc_matrix()).into();
+	pub fn update_v_p_matrices(&mut self) {
+		self.camera_uniform.v_matrix = Self::calculate_v_matrix(self.location, self.pitch, self.yaw).into();
+		self.camera_uniform.p_matrix = self.projection.p_matrix().into();
 	}
 
-	pub fn calc_matrix(&self) -> Matrix4<f32> {
-		Matrix4::look_to_rh(self.position, Vector3::new(self.yaw.0.cos(), self.pitch.0.sin(), self.yaw.0.sin()).normalize(), Vector3::unit_y())
+	pub fn calculate_v_matrix(location: Point3<f32>, pitch: Rad<f32>, yaw: Rad<f32>) -> Matrix4<f32> {
+		Matrix4::look_to_rh(location, Vector3::new(yaw.0.cos(), pitch.0.sin(), yaw.0.sin()).normalize(), Vector3::unit_y())
 	}
 }
 
@@ -94,16 +94,22 @@ impl SceneCamera {
 pub struct CameraUniform {
 	// We can't use cgmath with bytemuck directly so we'll have
 	// to convert the Matrix4 into a 4x4 f32 array
-	view_position: [f32; 4],
-	view_proj: [[f32; 4]; 4],
+	v_matrix: [[f32; 4]; 4],
+	p_matrix: [[f32; 4]; 4],
 }
 
 impl CameraUniform {
 	pub fn new() -> Self {
 		Self {
-			view_position: [0.0; 4],
-			view_proj: cgmath::Matrix4::identity().into(),
+			v_matrix: cgmath::Matrix4::from_translation(Vector3::new(0., 0., 0.)).into(),
+			p_matrix: cgmath::Matrix4::identity().into(),
 		}
+	}
+}
+
+impl Default for CameraUniform {
+	fn default() -> Self {
+		Self::new()
 	}
 }
 
@@ -129,7 +135,7 @@ impl Projection {
 		self.aspect = width as f32 / height as f32;
 	}
 
-	pub fn calc_matrix(&self) -> Matrix4<f32> {
+	pub fn p_matrix(&self) -> Matrix4<f32> {
 		OPENGL_TO_WGPU_MATRIX * cgmath::perspective(self.fovy, self.aspect, self.znear, self.zfar)
 	}
 }

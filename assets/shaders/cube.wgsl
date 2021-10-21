@@ -1,14 +1,14 @@
-[[block]] struct CameraUniform {
-	view_position: vec4<f32>;
-	view_proj: mat4x4<f32>;
+[[block]] struct Camera {
+	v_matrix: mat4x4<f32>;
+	p_matrix: mat4x4<f32>;
 };
 [[block]] struct Light {
-	position: vec3<f32>;
+	location: vec3<f32>;
 	color: vec3<f32>;
 };
 
 // Uniforms
-[[group(0), binding(0)]] var<uniform> camera_uniform: CameraUniform;
+[[group(0), binding(0)]] var<uniform> camera: Camera;
 [[group(1), binding(0)]] var<uniform> light: Light;
 [[group(2), binding(0)]] var t_diffuse: texture_2d<f32>;
 [[group(2), binding(1)]] var s_diffuse: sampler;
@@ -24,63 +24,66 @@ struct VertexInput {
 	[[location(4)]] bitangent: vec3<f32>;
 };
 struct InstanceInput {
-	// Model matrix (4x4)
 	[[location(5)]] model_matrix_0: vec4<f32>;
 	[[location(6)]] model_matrix_1: vec4<f32>;
 	[[location(7)]] model_matrix_2: vec4<f32>;
 	[[location(8)]] model_matrix_3: vec4<f32>;
-
-	// Normal matrix (3x3)
-	[[location(9)]] normal_matrix_0: vec3<f32>;
-	[[location(10)]] normal_matrix_1: vec3<f32>;
-	[[location(11)]] normal_matrix_2: vec3<f32>;
 };
 
 // Varyings
 struct VertexOutput {
-	[[builtin(position)]] clip_position: vec4<f32>;
-	[[location(0)]] world_position: vec3<f32>;
+	[[builtin(position)]] clip_space_position: vec4<f32>;
+	[[location(0)]] world_space_position: vec3<f32>;
 	[[location(1)]] uv: vec2<f32>;
-	[[location(2)]] tangent_position: vec3<f32>;
-	[[location(3)]] tangent_light_position: vec3<f32>;
-	[[location(4)]] tangent_view_position: vec3<f32>;
+	[[location(2)]] tangent_space_vertex_location: vec3<f32>;
+	[[location(4)]] tangent_space_eye_location: vec3<f32>;
+	[[location(3)]] tangent_space_light_location: vec3<f32>;
 };
 
 // Vertex shader
 [[stage(vertex)]]
 fn main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
-	// Reconstruct matrices from attribute vector components
-	let model_matrix = mat4x4<f32>(
-		instance.model_matrix_0,
-		instance.model_matrix_1,
-		instance.model_matrix_2,
-		instance.model_matrix_3,
+	// MVP matrices
+	let m = mat4x4<f32>(instance.model_matrix_0, instance.model_matrix_1, instance.model_matrix_2, instance.model_matrix_3);
+	let v = camera.v_matrix;
+	let p = camera.p_matrix;
+	let vp = p * v;
+
+	// Locations
+	let eye_location = v[3].xyz;
+	let light_location = light.location;
+	let uv = model.uv;
+
+	// Vertex data in model space
+	let model_space_position = vec4<f32>(model.position, 1.0);
+	let model_space_normal = vec4<f32>(model.normal, 0.0);
+	let model_space_tangent = vec4<f32>(model.tangent, 0.0);
+	let model_space_bitangent = vec4<f32>(model.bitangent, 0.0);
+
+	// Vertex data in world space
+	let world_space_position = m * model_space_position;
+	let world_space_normal = normalize(m * model_space_normal);
+	let world_space_tangent = normalize(m * model_space_tangent);
+	let world_space_bitangent = normalize(m * model_space_bitangent);
+
+	// Vertex data in clip space (XY: -1 to 1, Z: 0 to 1)
+	let clip_space_position = vp * world_space_position;
+
+	// Location data in tangent-relative world space (required by normal maps)
+	let to_tangent_space = transpose(mat3x3<f32>(world_space_tangent.xyz, world_space_bitangent.xyz, world_space_normal.xyz));
+	let tangent_space_vertex_location = to_tangent_space * world_space_position.xyz;
+	let tangent_space_eye_location = to_tangent_space * eye_location;
+	let tangent_space_light_location = to_tangent_space * light_location;
+
+	// Send varying values to the fragment shader
+	return VertexOutput(
+		clip_space_position,
+		world_space_position.xyz,
+		uv,
+		tangent_space_vertex_location,
+		tangent_space_eye_location,
+		tangent_space_light_location,
 	);
-	let normal_matrix = mat3x3<f32>(
-		instance.normal_matrix_0,
-		instance.normal_matrix_1,
-		instance.normal_matrix_2,
-	);
-
-	let world_normal = normalize(normal_matrix * model.normal);
-	let world_tangent = normalize(normal_matrix * model.tangent);
-	let world_bitangent = normalize(normal_matrix * model.bitangent);
-	let tangent_matrix = transpose(mat3x3<f32>(world_tangent, world_bitangent, world_normal));
-
-	let world_position = model_matrix * vec4<f32>(model.position, 1.0); // model_matrix is M
-
-	var out: VertexOutput;
-
-	out.clip_position = camera_uniform.view_proj * world_position; // view_proj is P
-	out.world_position = world_position.xyz;
-	out.uv = model.uv;
-
-	// Positions in tangent-space (compatible with normal maps)
-	out.tangent_position = tangent_matrix * world_position.xyz;
-	out.tangent_view_position = tangent_matrix * camera_uniform.view_position.xyz; // view_position is V if it were turned into a matrix
-	out.tangent_light_position = tangent_matrix * light.position;
-
-	return out;
 }
 
 // Fragment shader
@@ -90,11 +93,11 @@ fn main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
 	let object_normal: vec4<f32> = textureSample(t_normal, s_normal, in.uv);
 	let tangent_normal = object_normal.xyz * 2.0 - 1.0;
 
-	let light_dir = normalize(in.tangent_light_position - in.tangent_position);
-	let view_dir = normalize(in.tangent_view_position - in.tangent_position);
+	let light_dir = normalize(in.tangent_space_light_location - in.tangent_space_vertex_location);
+	let view_dir = normalize(in.tangent_space_eye_location - in.tangent_space_vertex_location);
 	let half_dir = normalize(view_dir + light_dir);
 
-	let distance = length(light.position - in.world_position.xyz);
+	let distance = length(light.location - in.world_space_position.xyz);
 	let attenuation = 1.0 / (1.0 + 0.09 * distance + 0.032 * (distance * distance));
 
 	// Ambient
