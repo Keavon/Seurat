@@ -96,25 +96,25 @@ impl InstanceRaw {
 					offset: 0,
 					// While our vertex shader only uses locations 0, and 1 now, in later tutorials we'll
 					// be using 2, 3, and 4, for Vertex. We'll start at slot 5 not conflict with them later
-					shader_location: 5,
+					shader_location: 4,
 					format: wgpu::VertexFormat::Float32x4,
 				},
 				// model matrix (2/4)
 				wgpu::VertexAttribute {
 					offset: std::mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
-					shader_location: 6,
+					shader_location: 5,
 					format: wgpu::VertexFormat::Float32x4,
 				},
 				// model matrix (3/4)
 				wgpu::VertexAttribute {
 					offset: std::mem::size_of::<[f32; 8]>() as wgpu::BufferAddress,
-					shader_location: 7,
+					shader_location: 6,
 					format: wgpu::VertexFormat::Float32x4,
 				},
 				// model matrix (4/4)
 				wgpu::VertexAttribute {
 					offset: std::mem::size_of::<[f32; 12]>() as wgpu::BufferAddress,
-					shader_location: 8,
+					shader_location: 7,
 					format: wgpu::VertexFormat::Float32x4,
 				},
 			],
