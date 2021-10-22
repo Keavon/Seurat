@@ -35,8 +35,8 @@ struct VertexOutput {
 	[[location(0)]] world_space_fragment_location: vec3<f32>;
 	[[location(1)]] uv: vec2<f32>;
 	[[location(2)]] tangent_space_fragment_location: vec3<f32>;
-	[[location(4)]] tangent_space_eye_location: vec3<f32>;
-	[[location(3)]] tangent_space_light_location: vec3<f32>;
+	[[location(3)]] tangent_space_eye_location: vec3<f32>;
+	[[location(4)]] tangent_space_light_location: vec3<f32>;
 };
 
 // Vertex shader
@@ -92,9 +92,9 @@ fn main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
 	let albedo: vec4<f32> = textureSample(t_diffuse, s_diffuse, in.uv);
 	let normal: vec3<f32> = textureSample(t_normal, s_normal, in.uv).xyz * 2. - 1.;
 
-	let light_dir = normalize(in.tangent_space_light_location - in.tangent_space_fragment_location);
-	let view_dir = normalize(in.tangent_space_eye_location - in.tangent_space_fragment_location);
-	let half_dir = normalize(view_dir + light_dir);
+	let fragment_to_light_vector = normalize(in.tangent_space_light_location - in.tangent_space_fragment_location);
+	let fragment_to_eye_vector = normalize(in.tangent_space_eye_location - in.tangent_space_fragment_location);
+	let half_vector = normalize(fragment_to_eye_vector + fragment_to_light_vector);
 
 	// Inverse square light falloff
 	let distance = length(light.location - in.world_space_fragment_location.xyz);
@@ -105,11 +105,11 @@ fn main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
 	let ambient_color = light.color * ambient_strength;
 
 	// Diffuse
-	let diffuse_strength = max(dot(normal, light_dir), 0.0);
+	let diffuse_strength = max(dot(normal, fragment_to_light_vector), 0.0);
 	let diffuse_color = light.color * diffuse_strength;
 
 	// Specular
-	let specular_strength = pow(max(dot(normal, half_dir), 0.0), 4.0);
+	let specular_strength = pow(max(dot(normal, half_vector), 0.0), 4.0);
 	let specular_color = specular_strength * light.color;
 
 	// Result

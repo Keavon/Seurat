@@ -73,10 +73,10 @@ impl Engine {
 			let diffuse = ShaderBinding::Texture(ShaderBindingTexture::default());
 			let normal = ShaderBinding::Texture(ShaderBindingTexture::default());
 
-			Shader::new(&self.context, assets_path, "cube.wgsl", vec![diffuse, normal], &temporary_camera, &self.scene_lighting)
+			Shader::new(&self.context, assets_path, "pbr.wgsl", vec![diffuse, normal], &temporary_camera, &self.scene_lighting)
 		};
 		self.scene.resources.shaders.insert(String::from("lamp.wgsl"), light_shader);
-		self.scene.resources.shaders.insert(String::from("cube.wgsl"), cube_shader);
+		self.scene.resources.shaders.insert(String::from("pbr.wgsl"), cube_shader);
 
 		// Textures
 		self.scene.resources.textures.insert(
@@ -93,7 +93,7 @@ impl Engine {
 			String::from("cube.material"),
 			Material::new(
 				"cube.material",
-				"cube.wgsl",
+				"pbr.wgsl",
 				vec![MaterialDataBinding::Texture("cube-diffuse.jpg"), MaterialDataBinding::Texture("cube-normal.png")],
 				&self.scene.resources,
 				&self.context.device,
