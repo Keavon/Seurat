@@ -1,6 +1,8 @@
 use crate::camera::SceneCamera;
 use crate::camera_controller::CameraController;
 use crate::component::Component;
+use crate::context::Context;
+use crate::frame_texture::{FrameTexture, FrameTextures};
 use crate::instance::Instance;
 use crate::light::SceneLighting;
 use crate::material::{Material, MaterialDataBinding};
@@ -17,7 +19,7 @@ use winit::{event_loop::ControlFlow, window::Window};
 
 pub struct Engine {
 	context: Context,
-	z_buffer: Texture,
+	frame_textures: FrameTextures,
 	frame_time: std::time::Instant,
 	scene: Scene,
 	active_camera: String,
@@ -32,8 +34,10 @@ impl Engine {
 		// Mechanical details of the GPU rendering process
 		let context = Context::new(window).await;
 
-		// Prepare the texture used for the Z buffer
-		let z_buffer = Texture::create_z_buffer(&context.device, &context.config, "Z buffer texture");
+		// Prepare the frame textures
+		let z_buffer = FrameTexture::new(&context.device, &context.config, wgpu::TextureFormat::Depth32Float, "Z-buffer frame texture");
+		let albedo = FrameTexture::new(&context.device, &context.config, wgpu::TextureFormat::Bgra8UnormSrgb, "Albedo frame texture");
+		let frame_textures = FrameTextures { z_buffer, albedo };
 
 		// Prepare the initial time value used to calculate the delta time since last frame
 		let frame_time = std::time::Instant::now();
@@ -50,7 +54,7 @@ impl Engine {
 
 		Self {
 			context,
-			z_buffer,
+			frame_textures,
 			frame_time,
 			scene,
 			active_camera,
@@ -70,22 +74,27 @@ impl Engine {
 		let temporary_camera = SceneCamera::new(&self.context);
 		let light_shader = Shader::new(&self.context, assets_path, "lamp.wgsl", vec![], &temporary_camera, &self.scene_lighting);
 		let cube_shader = {
-			let diffuse = ShaderBinding::Texture(ShaderBindingTexture::default());
+			let albedo = ShaderBinding::Texture(ShaderBindingTexture::default());
+			let arm = ShaderBinding::Texture(ShaderBindingTexture::default()); // AO/Roughness/Metalness
 			let normal = ShaderBinding::Texture(ShaderBindingTexture::default());
 
-			Shader::new(&self.context, assets_path, "pbr.wgsl", vec![diffuse, normal], &temporary_camera, &self.scene_lighting)
+			Shader::new(&self.context, assets_path, "pbr.wgsl", vec![albedo, arm, normal], &temporary_camera, &self.scene_lighting)
 		};
 		self.scene.resources.shaders.insert(String::from("lamp.wgsl"), light_shader);
 		self.scene.resources.shaders.insert(String::from("pbr.wgsl"), cube_shader);
 
 		// Textures
 		self.scene.resources.textures.insert(
-			String::from("cube-diffuse.jpg"),
-			Texture::load(&self.context.device, &self.context.queue, assets_path, "cube-diffuse.jpg", false).unwrap(),
+			String::from("cube_albedo.jpg"),
+			Texture::load(&self.context.device, &self.context.queue, assets_path, "cube_albedo.jpg", false).unwrap(),
 		);
 		self.scene.resources.textures.insert(
-			String::from("cube-normal.png"),
-			Texture::load(&self.context.device, &self.context.queue, assets_path, "cube-normal.png", true).unwrap(),
+			String::from("cube_arm.jpg"),
+			Texture::load(&self.context.device, &self.context.queue, assets_path, "cube_arm.jpg", true).unwrap(),
+		);
+		self.scene.resources.textures.insert(
+			String::from("cube_normal.jpg"),
+			Texture::load(&self.context.device, &self.context.queue, assets_path, "cube_normal.jpg", true).unwrap(),
 		);
 
 		// Materials
@@ -94,7 +103,11 @@ impl Engine {
 			Material::new(
 				"cube.material",
 				"pbr.wgsl",
-				vec![MaterialDataBinding::Texture("cube-diffuse.jpg"), MaterialDataBinding::Texture("cube-normal.png")],
+				vec![
+					MaterialDataBinding::Texture("cube_albedo.jpg"),
+					MaterialDataBinding::Texture("cube_arm.jpg"),
+					MaterialDataBinding::Texture("cube_normal.jpg"),
+				],
 				&self.scene.resources,
 				&self.context.device,
 			),
@@ -169,7 +182,7 @@ impl Engine {
 				.projection
 				.resize(new_size.width, new_size.height);
 
-			self.z_buffer = Texture::create_z_buffer(&self.context.device, &self.context.config, "Z buffer texture");
+			self.frame_textures.recreate_all(&self.context.device, &self.context.config);
 		}
 	}
 
@@ -253,7 +266,7 @@ impl Engine {
 
 		// Light
 		let old_position: cgmath::Vector3<_> = self.scene_lighting.light_uniform.location.into();
-		let new_position = cgmath::Quaternion::from_axis_angle((0.0, 1.0, 0.0).into(), cgmath::Deg(60.0 * delta_time.as_secs_f32())) * old_position;
+		let new_position = cgmath::Quaternion::from_axis_angle((0.0, 1.0, 0.0).into(), cgmath::Deg(20.0 * delta_time.as_secs_f32())) * old_position;
 		self.scene_lighting.light_uniform.location = new_position.into();
 		self.context
 			.queue
@@ -272,23 +285,35 @@ impl Engine {
 	}
 
 	fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-		let output = self.context.surface.get_current_frame()?.output;
-		let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+		let surface_texture = self.context.surface.get_current_frame()?.output;
+		let surface_texture_view = surface_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
+		let albedo_texture_view = &self.frame_textures.albedo.texture.view;
+		let z_buffer_texture_view = &self.frame_textures.z_buffer.texture.view;
 
 		let mut encoder = self.context.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("Render Encoder") });
 
 		let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
 			label: Some("Render Pass"),
-			color_attachments: &[wgpu::RenderPassColorAttachment {
-				view: &view,
-				resolve_target: None,
-				ops: wgpu::Operations {
-					load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.1, g: 0.2, b: 0.3, a: 1.0 }),
-					store: true,
+			color_attachments: &[
+				wgpu::RenderPassColorAttachment {
+					view: &surface_texture_view,
+					resolve_target: None,
+					ops: wgpu::Operations {
+						load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.1, g: 0.2, b: 0.3, a: 1.0 }),
+						store: true,
+					},
 				},
-			}],
+				wgpu::RenderPassColorAttachment {
+					view: albedo_texture_view,
+					resolve_target: None,
+					ops: wgpu::Operations {
+						load: wgpu::LoadOp::Clear(wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 }),
+						store: true,
+					},
+				},
+			],
 			depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-				view: &self.z_buffer.view,
+				view: z_buffer_texture_view,
 				depth_ops: Some(wgpu::Operations {
 					load: wgpu::LoadOp::Clear(1.0),
 					store: true,
@@ -330,62 +355,5 @@ impl Engine {
 		self.context.queue.submit(std::iter::once(encoder.finish()));
 
 		Ok(())
-	}
-}
-
-pub struct Context {
-	pub surface: wgpu::Surface,
-	pub device: wgpu::Device,
-	pub queue: wgpu::Queue,
-	pub config: wgpu::SurfaceConfiguration,
-}
-
-impl Context {
-	async fn new(window: &Window) -> Self {
-		// Get the pixel resolution of the window's render area
-		let viewport_size = window.inner_size();
-
-		// The WGPU runtime
-		let instance = wgpu::Instance::new(wgpu::Backends::all());
-
-		// The viewport to draw on
-		let surface = unsafe { instance.create_surface(window) };
-
-		// Handle to the GPU
-		let adapter = instance
-			.request_adapter(&wgpu::RequestAdapterOptions {
-				power_preference: wgpu::PowerPreference::default(),
-				compatible_surface: Some(&surface),
-			})
-			.await
-			.unwrap();
-
-		// Device is the living connection to the GPU
-		// Queue is where commands are submitted to the GPU
-		let (device, queue) = adapter
-			.request_device(
-				&wgpu::DeviceDescriptor {
-					features: wgpu::Features::empty(),
-					limits: wgpu::Limits::default(),
-					label: None,
-				},
-				None,
-			)
-			.await
-			.unwrap();
-
-		// Build the configuration for the surface
-		let config = wgpu::SurfaceConfiguration {
-			usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-			format: surface.get_preferred_format(&adapter).unwrap(),
-			width: viewport_size.width,
-			height: viewport_size.height,
-			present_mode: wgpu::PresentMode::Fifo,
-		};
-
-		// Configure the surface with the properties defined above
-		surface.configure(&device, &config);
-
-		Self { surface, device, queue, config }
 	}
 }

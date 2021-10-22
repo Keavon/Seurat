@@ -1,9 +1,8 @@
 use crate::camera::SceneCamera;
-use crate::engine::Context;
+use crate::context::Context;
 use crate::instance::InstanceRaw;
 use crate::light::SceneLighting;
 use crate::mesh::{ModelVertex, Vertex};
-use crate::texture::Texture;
 
 use std::path::Path;
 use wgpu::{BindGroupLayout, PipelineLayout, RenderPipeline};
@@ -38,7 +37,7 @@ impl Shader {
 			&context.device,
 			&render_pipeline_layout,
 			context.config.format,
-			Some(Texture::DEPTH_FORMAT),
+			Some(wgpu::TextureFormat::Depth32Float),
 			vertex_layouts,
 			wgpu::ShaderModuleDescriptor {
 				label: Some(format!("Shader \"{}\" module descriptor", file).as_str()),
@@ -127,14 +126,24 @@ fn create_render_pipeline(
 		fragment: Some(wgpu::FragmentState {
 			module: &shader,
 			entry_point: "main",
-			targets: &[wgpu::ColorTargetState {
-				format: color_format,
-				blend: Some(wgpu::BlendState {
-					alpha: wgpu::BlendComponent::REPLACE,
-					color: wgpu::BlendComponent::REPLACE,
-				}),
-				write_mask: wgpu::ColorWrites::ALL,
-			}],
+			targets: &[
+				wgpu::ColorTargetState {
+					format: color_format,
+					blend: Some(wgpu::BlendState {
+						alpha: wgpu::BlendComponent::REPLACE,
+						color: wgpu::BlendComponent::REPLACE,
+					}),
+					write_mask: wgpu::ColorWrites::ALL,
+				},
+				wgpu::ColorTargetState {
+					format: color_format,
+					blend: Some(wgpu::BlendState {
+						alpha: wgpu::BlendComponent::REPLACE,
+						color: wgpu::BlendComponent::REPLACE,
+					}),
+					write_mask: wgpu::ColorWrites::ALL,
+				},
+			],
 		}),
 		primitive: wgpu::PrimitiveState {
 			topology: wgpu::PrimitiveTopology::TriangleList,

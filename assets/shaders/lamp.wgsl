@@ -24,8 +24,14 @@ struct InstanceInput {
 
 // Varyings
 struct VertexOutput {
-	[[builtin(position)]] clip_space_position: vec4<f32>;
+	[[builtin(position)]] clip_space_fragment_location: vec4<f32>;
 	[[location(0)]] color: vec3<f32>;
+};
+
+// Frames
+struct FragmentOutput {
+	[[location(0)]] surface: vec4<f32>;
+	[[location(1)]] albedo: vec4<f32>;
 };
 
 // Vertex shader
@@ -50,17 +56,20 @@ fn main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
 	let world_space_fragment_location = m * model_space_position;
 
 	// Vertex data in clip space (XY: -1 to 1, Z: 0 to 1)
-	let clip_space_position = vp * vec4<f32>(model.position * scale + light.location, 1.0);
+	let clip_space_fragment_location = vp * vec4<f32>(model.position * scale + light.location, 1.0);
 
 	// Send varying values to the fragment shader
 	return VertexOutput(
-		clip_space_position,
+		clip_space_fragment_location,
 		light.color,
 	);
 }
 
 // Fragment shader
 [[stage(fragment)]]
-fn main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
-	return vec4<f32>(in.color, 1.0);
+fn main(in: VertexOutput) -> FragmentOutput {
+	return FragmentOutput(
+		vec4<f32>(in.color, 1.0),
+		vec4<f32>(in.color, 1.0),
+	);
 }

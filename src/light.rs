@@ -1,6 +1,6 @@
 use wgpu::{util::DeviceExt, BindGroup, BindGroupLayout};
 
-use crate::engine::Context;
+use crate::context::Context;
 
 #[derive(Debug)]
 pub enum Light {
@@ -35,7 +35,7 @@ impl SceneLighting {
 		let light_uniform = LightUniform {
 			location: [2.0, 2.0, 2.0],
 			_padding: 0,
-			color: [1.0, 1.0, 1.0],
+			color: [25.0, 25.0, 25.0],
 		};
 
 		// We'll want to update our lights location, so we use COPY_DST

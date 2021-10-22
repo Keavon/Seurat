@@ -31,7 +31,7 @@ struct InstanceInput {
 
 // Varyings
 struct VertexOutput {
-	[[builtin(position)]] clip_space_position: vec4<f32>;
+	[[builtin(position)]] clip_space_fragment_location: vec4<f32>;
 	[[location(0)]] world_space_fragment_location: vec3<f32>;
 	[[location(1)]] uv: vec2<f32>;
 	[[location(2)]] tangent_space_fragment_location: vec3<f32>;
@@ -48,11 +48,6 @@ fn main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
 	let p = camera.p_matrix;
 	let vp = p * v;
 
-	// Locations
-	let eye_location = v[3].xyz;
-	let light_location = light.location;
-	let uv = model.uv;
-
 	// Vertex data in model space
 	let model_space_position = vec4<f32>(model.position, 1.0);
 	let model_space_normal = vec4<f32>(model.normal, 0.0);
@@ -66,19 +61,23 @@ fn main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
 	let world_space_bitangent = cross(world_space_normal, world_space_tangent);
 
 	// Vertex data in clip space (XY: -1 to 1, Z: 0 to 1)
-	let clip_space_position = vp * world_space_fragment_location;
+	let clip_space_fragment_location = vp * world_space_fragment_location;
+
+	// Location data in world space
+	let world_space_eye_location = v[3].xyz;
+	let world_space_light_location = light.location;
 
 	// Location data in tangent-relative world space (required by normal maps)
 	let to_tangent_space = transpose(mat3x3<f32>(world_space_tangent, world_space_bitangent, world_space_normal));
 	let tangent_space_fragment_location = to_tangent_space * world_space_fragment_location.xyz;
-	let tangent_space_eye_location = to_tangent_space * eye_location;
-	let tangent_space_light_location = to_tangent_space * light_location;
+	let tangent_space_eye_location = to_tangent_space * world_space_eye_location;
+	let tangent_space_light_location = to_tangent_space * world_space_light_location;
 
 	// Send varying values to the fragment shader
 	return VertexOutput(
-		clip_space_position,
+		clip_space_fragment_location,
 		world_space_fragment_location.xyz,
-		uv,
+		model.uv,
 		tangent_space_fragment_location,
 		tangent_space_eye_location,
 		tangent_space_light_location,
