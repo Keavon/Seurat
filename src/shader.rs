@@ -15,7 +15,16 @@ pub struct Shader {
 }
 
 impl Shader {
-	pub fn new(context: &Context, directory: &Path, file: &str, shader_bindings: Vec<ShaderBinding>, scene_camera: &SceneCamera, scene_lighting: &SceneLighting) -> Self {
+	pub fn new(
+		context: &Context,
+		directory: &Path,
+		file: &str,
+		shader_bindings: Vec<ShaderBinding>,
+		use_instances: bool,
+		fragment_targets: usize,
+		scene_camera: &SceneCamera,
+		scene_lighting: &SceneLighting,
+	) -> Self {
 		let bind_group_layout_entries = build_bind_group_layout_entries(shader_bindings.as_slice());
 		let bind_group_layout = context.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
 			entries: bind_group_layout_entries.as_slice(),
@@ -28,7 +37,11 @@ impl Shader {
 			push_constant_ranges: &[],
 		});
 
-		let vertex_layouts = &[ModelVertex::layout(), InstanceRaw::layout()];
+		let vertex_layouts = if use_instances {
+			vec![ModelVertex::layout(), InstanceRaw::layout()]
+		} else {
+			vec![ModelVertex::layout()]
+		};
 
 		let shader_path = directory.join("shaders").join(file);
 		let shader_code = std::fs::read_to_string(shader_path).unwrap();
@@ -38,7 +51,8 @@ impl Shader {
 			&render_pipeline_layout,
 			context.config.format,
 			Some(wgpu::TextureFormat::Depth32Float),
-			vertex_layouts,
+			vertex_layouts.as_slice(),
+			fragment_targets,
 			wgpu::ShaderModuleDescriptor {
 				label: Some(format!("Shader \"{}\" module descriptor", file).as_str()),
 				source: wgpu::ShaderSource::Wgsl(shader_code.into()),
@@ -111,6 +125,7 @@ fn create_render_pipeline(
 	color_format: wgpu::TextureFormat,
 	depth_format: Option<wgpu::TextureFormat>,
 	vertex_layouts: &[wgpu::VertexBufferLayout],
+	fragment_targets: usize,
 	shader: wgpu::ShaderModuleDescriptor,
 ) -> wgpu::RenderPipeline {
 	let shader = device.create_shader_module(&shader);
@@ -126,24 +141,17 @@ fn create_render_pipeline(
 		fragment: Some(wgpu::FragmentState {
 			module: &shader,
 			entry_point: "main",
-			targets: &[
-				wgpu::ColorTargetState {
+			targets: (0..fragment_targets)
+				.map(|_| wgpu::ColorTargetState {
 					format: color_format,
 					blend: Some(wgpu::BlendState {
 						alpha: wgpu::BlendComponent::REPLACE,
 						color: wgpu::BlendComponent::REPLACE,
 					}),
 					write_mask: wgpu::ColorWrites::ALL,
-				},
-				wgpu::ColorTargetState {
-					format: color_format,
-					blend: Some(wgpu::BlendState {
-						alpha: wgpu::BlendComponent::REPLACE,
-						color: wgpu::BlendComponent::REPLACE,
-					}),
-					write_mask: wgpu::ColorWrites::ALL,
-				},
-			],
+				})
+				.collect::<Vec<_>>()
+				.as_slice(),
 		}),
 		primitive: wgpu::PrimitiveState {
 			topology: wgpu::PrimitiveTopology::TriangleList,

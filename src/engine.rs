@@ -2,12 +2,13 @@ use crate::camera::SceneCamera;
 use crate::camera_controller::CameraController;
 use crate::component::Component;
 use crate::context::Context;
-use crate::frame_texture::{FrameTexture, FrameTextures};
+use crate::frame_texture::{FrameTexture, FrameTextureTypes, FrameTextures};
 use crate::instance::Instance;
 use crate::light::SceneLighting;
 use crate::material::{Material, MaterialDataBinding};
 use crate::mesh::Mesh;
 use crate::model::Model;
+use crate::pass::Pass;
 use crate::scene::Scene;
 use crate::shader::{Shader, ShaderBinding, ShaderBindingTexture};
 use crate::texture::Texture;
@@ -72,15 +73,24 @@ impl Engine {
 	fn load_resources(&mut self, assets_path: &Path) {
 		// Shaders
 		let temporary_camera = SceneCamera::new(&self.context);
-		let light_shader = Shader::new(&self.context, assets_path, "lamp.wgsl", vec![], &temporary_camera, &self.scene_lighting);
-		let cube_shader = {
-			let albedo = ShaderBinding::Texture(ShaderBindingTexture::default());
-			let arm = ShaderBinding::Texture(ShaderBindingTexture::default()); // AO/Roughness/Metalness
-			let normal = ShaderBinding::Texture(ShaderBindingTexture::default());
 
-			Shader::new(&self.context, assets_path, "pbr.wgsl", vec![albedo, arm, normal], &temporary_camera, &self.scene_lighting)
+		let blit_shader = {
+			let color = ShaderBinding::Texture(ShaderBindingTexture::default());
+
+			Shader::new(&self.context, assets_path, "blit.wgsl", vec![color], false, 1, &temporary_camera, &self.scene_lighting)
 		};
+		self.scene.resources.shaders.insert(String::from("blit.wgsl"), blit_shader);
+
+		let light_shader = Shader::new(&self.context, assets_path, "lamp.wgsl", vec![], true, 2, &temporary_camera, &self.scene_lighting);
 		self.scene.resources.shaders.insert(String::from("lamp.wgsl"), light_shader);
+
+		let cube_shader = {
+			let albedo = ShaderBinding::Texture(ShaderBindingTexture::default()); // Albedo map
+			let arm = ShaderBinding::Texture(ShaderBindingTexture::default()); // AO/Roughness/Metalness map
+			let normal = ShaderBinding::Texture(ShaderBindingTexture::default()); // Normal map
+
+			Shader::new(&self.context, assets_path, "pbr.wgsl", vec![albedo, arm, normal], true, 2, &temporary_camera, &self.scene_lighting)
+		};
 		self.scene.resources.shaders.insert(String::from("pbr.wgsl"), cube_shader);
 
 		// Textures
@@ -98,6 +108,20 @@ impl Engine {
 		);
 
 		// Materials
+		self.scene.resources.materials.insert(
+			String::from("BLIT_QUAD.material"),
+			Material::new(
+				"BLIT_QUAD.material",
+				"blit.wgsl",
+				vec![
+					// TODO: Put blit texture in here to fix panic
+					MaterialDataBinding::Texture("cube_normal.jpg"),
+				],
+				&self.scene.resources,
+				&self.context.device,
+			),
+		);
+
 		self.scene.resources.materials.insert(
 			String::from("cube.material"),
 			Material::new(
@@ -118,6 +142,9 @@ impl Engine {
 		);
 
 		// Meshes
+		let blit_quad_mesh = Mesh::new_blit_quad(&self.context.device, &self.context.queue);
+		self.scene.resources.meshes.insert((String::from("BLIT"), String::from("QUAD")), blit_quad_mesh);
+
 		let meshes = Mesh::load(&self.context.device, &self.context.queue, assets_path, "cube.obj");
 		for mesh in meshes.unwrap_or_default() {
 			self.scene.resources.meshes.insert((String::from("cube.obj"), mesh.name.clone()), mesh);
@@ -285,43 +312,67 @@ impl Engine {
 	}
 
 	fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-		let surface_texture = self.context.surface.get_current_frame()?.output;
+		let surface_texture = self.context.surface.get_current_texture()?;
 		let surface_texture_view = surface_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
-		let albedo_texture_view = &self.frame_textures.albedo.texture.view;
-		let z_buffer_texture_view = &self.frame_textures.z_buffer.texture.view;
+
+		let frame_texture_from_id = |frame_texture_type: FrameTextureTypes| match frame_texture_type {
+			FrameTextureTypes::Surface => &surface_texture_view,
+			FrameTextureTypes::ZBuffer => &self.frame_textures.z_buffer.texture.view,
+			FrameTextureTypes::Albedo => &self.frame_textures.albedo.texture.view,
+		};
 
 		let mut encoder = self.context.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("Render Encoder") });
 
-		let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-			label: Some("Render Pass"),
-			color_attachments: &[
-				wgpu::RenderPassColorAttachment {
-					view: &surface_texture_view,
-					resolve_target: None,
-					ops: wgpu::Operations {
-						load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.1, g: 0.2, b: 0.3, a: 1.0 }),
-						store: true,
-					},
-				},
-				wgpu::RenderPassColorAttachment {
-					view: albedo_texture_view,
+		let passes = vec![Pass {
+			label: String::from("Forward"),
+			depth_attachment: true,
+			color_attachment_types: vec![FrameTextureTypes::Surface, FrameTextureTypes::Albedo],
+			draw_quad_not_scene: false,
+		}];
+
+		for pass in passes {
+			let color_attachments = pass
+				.color_attachment_types
+				.iter()
+				.map(|frame_texture_type| wgpu::RenderPassColorAttachment {
+					view: frame_texture_from_id(*frame_texture_type),
 					resolve_target: None,
 					ops: wgpu::Operations {
 						load: wgpu::LoadOp::Clear(wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 }),
 						store: true,
 					},
-				},
-			],
-			depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-				view: z_buffer_texture_view,
+				})
+				.collect::<Vec<wgpu::RenderPassColorAttachment>>();
+
+			let depth_stencil_attachment = pass.depth_attachment.then(|| wgpu::RenderPassDepthStencilAttachment {
+				view: frame_texture_from_id(FrameTextureTypes::ZBuffer),
 				depth_ops: Some(wgpu::Operations {
 					load: wgpu::LoadOp::Clear(1.0),
 					store: true,
 				}),
 				stencil_ops: None,
-			}),
-		});
+			});
 
+			let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+				label: Some(pass.label.as_str()),
+				color_attachments: color_attachments.as_slice(),
+				depth_stencil_attachment,
+			});
+
+			if pass.draw_quad_not_scene {
+				self.draw_quad(render_pass);
+			} else {
+				self.draw_scene(render_pass);
+			}
+		}
+
+		self.context.queue.submit(std::iter::once(encoder.finish()));
+		surface_texture.present();
+
+		Ok(())
+	}
+
+	fn draw_scene<'a>(&'a self, mut render_pass: wgpu::RenderPass<'a>) {
 		for entity in &self.scene.root {
 			for component in &entity.components {
 				if let Component::Model(model) = component {
@@ -348,12 +399,24 @@ impl Engine {
 				}
 			}
 		}
+	}
 
-		drop(render_pass);
+	fn draw_quad<'a>(&'a self, mut render_pass: wgpu::RenderPass<'a>) {
+		let mesh = &self.scene.resources.meshes.get(&(String::from("BLIT"), String::from("QUAD"))).unwrap();
+		let material = &self.scene.resources.materials.get("BLIT_QUAD.material").unwrap();
+		let shader = &self.scene.resources.shaders[material.shader_id];
+		let scene_camera = self.scene.find_entity(self.active_camera.as_str()).unwrap().get_cameras()[0];
 
-		// submit will accept anything that implements IntoIter
-		self.context.queue.submit(std::iter::once(encoder.finish()));
+		render_pass.set_pipeline(&shader.render_pipeline);
 
-		Ok(())
+		render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+
+		render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+
+		render_pass.set_bind_group(0, &scene_camera.camera_bind_group, &[]);
+		render_pass.set_bind_group(1, &self.scene_lighting.light_bind_group, &[]);
+		render_pass.set_bind_group(2, &material.bind_group, &[]);
+
+		render_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
 	}
 }

@@ -1,4 +1,5 @@
 use crate::scene::LoadedResources;
+use crate::shader::ShaderBinding;
 
 pub struct Material {
 	pub shader_id: usize,
@@ -15,7 +16,7 @@ impl Material {
 			.iter()
 			.enumerate()
 			.flat_map(|(index, binding)| match binding {
-				crate::shader::ShaderBinding::Buffer(_) => {
+				ShaderBinding::Buffer(_) => {
 					let binding = binding_index;
 					binding_index += 1;
 
@@ -33,7 +34,7 @@ impl Material {
 						resource: wgpu::BindingResource::Buffer(buffer_binding),
 					}]
 				}
-				crate::shader::ShaderBinding::Texture(_) => {
+				ShaderBinding::Texture(_) => {
 					let binding = binding_index;
 					binding_index += 2;
 

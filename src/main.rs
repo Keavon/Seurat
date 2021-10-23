@@ -11,6 +11,7 @@ mod light;
 mod material;
 mod mesh;
 mod model;
+mod pass;
 mod scene;
 mod scripts;
 mod shader;

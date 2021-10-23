@@ -61,3 +61,10 @@ impl FrameTextures {
 		self.albedo.recreate(device, config);
 	}
 }
+
+#[derive(Copy, Clone)]
+pub enum FrameTextureTypes {
+	Surface,
+	ZBuffer,
+	Albedo,
+}
