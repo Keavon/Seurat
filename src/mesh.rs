@@ -116,15 +116,15 @@ impl Mesh {
 	}
 
 	pub fn new_blit_quad(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
-		let corners = [(0., 0.), (0., 1.), (1., 0.), (1., 1.)];
+		let corners = [(-1., -1.), (-1., 1.), (1., -1.), (1., 1.)];
 		let vertices = corners.map(|point| ModelVertex {
-			position: [point.0, point.1, 0.],
+			position: [point.0, point.1, 0.5],
 			uv: [0.0; 2],
 			normal: [0.0; 3],
 			tangent: [0.0; 3],
 		});
 
-		let indexes: [usize; 6] = [0, 1, 2, 2, 1, 3];
+		let indices: [u32; 6] = [2, 1, 0, 3, 1, 2];
 
 		let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
 			label: Some("Blit Quad Vertex Buffer"),
@@ -133,7 +133,7 @@ impl Mesh {
 		});
 		let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
 			label: Some("Blit Quad Index Buffer"),
-			contents: bytemuck::cast_slice(&indexes),
+			contents: bytemuck::cast_slice(&indices),
 			usage: wgpu::BufferUsages::INDEX,
 		});
 
@@ -141,7 +141,7 @@ impl Mesh {
 			name: String::from("Blit Quad"),
 			vertex_buffer,
 			index_buffer,
-			index_count: 2,
+			index_count: 6,
 		}
 	}
 }

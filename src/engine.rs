@@ -36,9 +36,17 @@ impl Engine {
 		let context = Context::new(window).await;
 
 		// Prepare the frame textures
-		let z_buffer = FrameTexture::new(&context.device, &context.config, wgpu::TextureFormat::Depth32Float, "Z-buffer frame texture");
-		let albedo = FrameTexture::new(&context.device, &context.config, wgpu::TextureFormat::Bgra8UnormSrgb, "Albedo frame texture");
-		let frame_textures = FrameTextures { z_buffer, albedo };
+		let z_buffer = FrameTexture::new(
+			&context.device,
+			&context.config,
+			wgpu::TextureFormat::Depth32Float,
+			"Z-buffer frame texture",
+			Some(wgpu::CompareFunction::LessEqual),
+		);
+		let albedo = FrameTexture::new(&context.device, &context.config, wgpu::TextureFormat::Bgra8UnormSrgb, "Albedo frame texture", None);
+		let arm = FrameTexture::new(&context.device, &context.config, wgpu::TextureFormat::Bgra8UnormSrgb, "ARM frame texture", None);
+		let frame_textures = FrameTextures { z_buffer, albedo, arm };
+		// UPDATE HERE TO ADD FRAME TEXTURE
 
 		// Prepare the initial time value used to calculate the delta time since last frame
 		let frame_time = std::time::Instant::now();
@@ -76,22 +84,33 @@ impl Engine {
 
 		let blit_shader = {
 			let color = ShaderBinding::Texture(ShaderBindingTexture::default());
+			let arm = ShaderBinding::Texture(ShaderBindingTexture::default());
+			// UPDATE HERE TO ADD FRAME TEXTURE
 
-			Shader::new(&self.context, assets_path, "blit.wgsl", vec![color], false, 1, &temporary_camera, &self.scene_lighting)
+			Shader::new(&self.context, assets_path, "blit.wgsl", vec![color, arm], false, 1, None, None)
 		};
 		self.scene.resources.shaders.insert(String::from("blit.wgsl"), blit_shader);
 
-		let light_shader = Shader::new(&self.context, assets_path, "lamp.wgsl", vec![], true, 2, &temporary_camera, &self.scene_lighting);
+		let light_shader = Shader::new(&self.context, assets_path, "lamp.wgsl", vec![], true, 1, Some(&temporary_camera), Some(&self.scene_lighting));
 		self.scene.resources.shaders.insert(String::from("lamp.wgsl"), light_shader);
 
-		let cube_shader = {
+		let pbr_shader = {
 			let albedo = ShaderBinding::Texture(ShaderBindingTexture::default()); // Albedo map
 			let arm = ShaderBinding::Texture(ShaderBindingTexture::default()); // AO/Roughness/Metalness map
 			let normal = ShaderBinding::Texture(ShaderBindingTexture::default()); // Normal map
 
-			Shader::new(&self.context, assets_path, "pbr.wgsl", vec![albedo, arm, normal], true, 2, &temporary_camera, &self.scene_lighting)
+			Shader::new(
+				&self.context,
+				assets_path,
+				"pbr.wgsl",
+				vec![albedo, arm, normal],
+				true,
+				2, // UPDATE HERE TO ADD FRAME TEXTURE
+				Some(&temporary_camera),
+				Some(&self.scene_lighting),
+			)
 		};
-		self.scene.resources.shaders.insert(String::from("pbr.wgsl"), cube_shader);
+		self.scene.resources.shaders.insert(String::from("pbr.wgsl"), pbr_shader);
 
 		// Textures
 		self.scene.resources.textures.insert(
@@ -110,22 +129,18 @@ impl Engine {
 		// Materials
 		self.scene.resources.materials.insert(
 			String::from("BLIT_QUAD.material"),
-			Material::new(
+			Material::new_blit_quad(
 				"BLIT_QUAD.material",
 				"blit.wgsl",
-				vec![
-					// TODO: Put blit texture in here to fix panic
-					MaterialDataBinding::Texture("cube_normal.jpg"),
-				],
+				vec![&self.frame_textures.albedo.texture, &self.frame_textures.arm.texture], // UPDATE HERE TO ADD FRAME TEXTURE
 				&self.scene.resources,
 				&self.context.device,
 			),
 		);
-
 		self.scene.resources.materials.insert(
-			String::from("cube.material"),
+			String::from("pbr.material"),
 			Material::new(
-				"cube.material",
+				"pbr.material",
 				"pbr.wgsl",
 				vec![
 					MaterialDataBinding::Texture("cube_albedo.jpg"),
@@ -170,7 +185,7 @@ impl Engine {
 		// Array of cubes
 		let cubes = self.scene.root.new_child("Cubes");
 
-		let mut cube_model = Model::new(&self.scene.resources, ("cube.obj", "Cube_Finished_Cube.001"), "cube.material");
+		let mut cube_model = Model::new(&self.scene.resources, ("cube.obj", "Cube_Finished_Cube.001"), "pbr.material");
 
 		const NUM_INSTANCES_PER_ROW: u32 = 10;
 		const SPACE_BETWEEN: f32 = 3.0;
@@ -319,16 +334,27 @@ impl Engine {
 			FrameTextureTypes::Surface => &surface_texture_view,
 			FrameTextureTypes::ZBuffer => &self.frame_textures.z_buffer.texture.view,
 			FrameTextureTypes::Albedo => &self.frame_textures.albedo.texture.view,
+			FrameTextureTypes::Arm => &self.frame_textures.arm.texture.view,
 		};
 
 		let mut encoder = self.context.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("Render Encoder") });
 
-		let passes = vec![Pass {
-			label: String::from("Forward"),
-			depth_attachment: true,
-			color_attachment_types: vec![FrameTextureTypes::Surface, FrameTextureTypes::Albedo],
-			draw_quad_not_scene: false,
-		}];
+		let passes = vec![
+			Pass {
+				label: String::from("Forward"),
+				depth_attachment: true,
+				color_attachment_types: vec![FrameTextureTypes::Albedo, FrameTextureTypes::Arm], // UPDATE HERE TO ADD FRAME TEXTURE
+				draw_quad_not_scene: false,
+				clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
+			},
+			Pass {
+				label: String::from("Deferred"),
+				depth_attachment: true,
+				color_attachment_types: vec![FrameTextureTypes::Surface],
+				draw_quad_not_scene: true,
+				clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
+			},
+		];
 
 		for pass in passes {
 			let color_attachments = pass
@@ -338,7 +364,7 @@ impl Engine {
 					view: frame_texture_from_id(*frame_texture_type),
 					resolve_target: None,
 					ops: wgpu::Operations {
-						load: wgpu::LoadOp::Clear(wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 }),
+						load: wgpu::LoadOp::Clear(pass.clear_color),
 						store: true,
 					},
 				})
@@ -360,6 +386,17 @@ impl Engine {
 			});
 
 			if pass.draw_quad_not_scene {
+				self.scene.resources.materials.insert(
+					String::from("blit.wgsl"),
+					Material::new_blit_quad(
+						"BLIT_QUAD.material",
+						"blit.wgsl",
+						vec![&self.frame_textures.albedo.texture, &self.frame_textures.arm.texture], // UPDATE HERE TO ADD FRAME TEXTURE
+						&self.scene.resources,
+						&self.context.device,
+					),
+				);
+
 				self.draw_quad(render_pass);
 			} else {
 				self.draw_scene(render_pass);
@@ -405,7 +442,6 @@ impl Engine {
 		let mesh = &self.scene.resources.meshes.get(&(String::from("BLIT"), String::from("QUAD"))).unwrap();
 		let material = &self.scene.resources.materials.get("BLIT_QUAD.material").unwrap();
 		let shader = &self.scene.resources.shaders[material.shader_id];
-		let scene_camera = self.scene.find_entity(self.active_camera.as_str()).unwrap().get_cameras()[0];
 
 		render_pass.set_pipeline(&shader.render_pipeline);
 
@@ -413,9 +449,7 @@ impl Engine {
 
 		render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
 
-		render_pass.set_bind_group(0, &scene_camera.camera_bind_group, &[]);
-		render_pass.set_bind_group(1, &self.scene_lighting.light_bind_group, &[]);
-		render_pass.set_bind_group(2, &material.bind_group, &[]);
+		render_pass.set_bind_group(0, &material.bind_group, &[]);
 
 		render_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
 	}

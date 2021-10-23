@@ -46,8 +46,9 @@ struct VertexOutput {
 
 // Frames
 struct FragmentOutput {
-	[[location(0)]] surface: vec4<f32>;
-	[[location(1)]] albedo: vec4<f32>;
+	[[location(0)]] albedo: vec4<f32>;
+	[[location(1)]] arm: vec4<f32>;
+	// UPDATE HERE TO ADD FRAME TEXTURE
 };
 
 // Vertex shader
@@ -226,7 +227,8 @@ fn main(in: VertexOutput) -> FragmentOutput {
 	// Gamma correction (linear to gamma)
 	color = pow(color, vec3<f32>(1. / 2.2));
 	return FragmentOutput(
-		vec4<f32>(color, alpha),
-		vec4<f32>(albedo, alpha),
+		vec4<f32>(albedo, 1.),
+		vec4<f32>(ao_roughness_metalness_map.xyz, 1.),
+		// UPDATE HERE TO ADD FRAME TEXTURE
 	);
 }

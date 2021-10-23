@@ -31,7 +31,7 @@ struct VertexOutput {
 // Frames
 struct FragmentOutput {
 	[[location(0)]] surface: vec4<f32>;
-	[[location(1)]] albedo: vec4<f32>;
+	// [[location(1)]] albedo: vec4<f32>;
 };
 
 // Vertex shader
@@ -70,6 +70,6 @@ fn main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
 fn main(in: VertexOutput) -> FragmentOutput {
 	return FragmentOutput(
 		vec4<f32>(in.color, 1.0),
-		vec4<f32>(in.color, 1.0),
+		// vec4<f32>(in.color, 1.0),
 	);
 }

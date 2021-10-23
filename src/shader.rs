@@ -22,15 +22,21 @@ impl Shader {
 		shader_bindings: Vec<ShaderBinding>,
 		use_instances: bool,
 		fragment_targets: usize,
-		scene_camera: &SceneCamera,
-		scene_lighting: &SceneLighting,
+		scene_camera: Option<&SceneCamera>,
+		scene_lighting: Option<&SceneLighting>,
 	) -> Self {
 		let bind_group_layout_entries = build_bind_group_layout_entries(shader_bindings.as_slice());
 		let bind_group_layout = context.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
 			entries: bind_group_layout_entries.as_slice(),
 			label: Some(format!("Shader \"{}\" bind group layout", file).as_str()),
 		});
-		let bind_group_layouts = &[&scene_camera.camera_bind_group_layout, &scene_lighting.light_bind_group_layout, &bind_group_layout];
+
+		let camera_layout = scene_camera.map(|camera| &camera.camera_bind_group_layout);
+		let lighting_layout = scene_lighting.map(|lighting| &lighting.light_bind_group_layout);
+		let layout = Some(&bind_group_layout);
+		let layouts = vec![camera_layout, lighting_layout, layout].into_iter().flatten().collect::<Vec<_>>();
+
+		let bind_group_layouts = layouts.as_slice();
 		let render_pipeline_layout = context.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 			label: Some(format!("Shader \"{}\" render pipeline layout", file).as_str()),
 			bind_group_layouts,

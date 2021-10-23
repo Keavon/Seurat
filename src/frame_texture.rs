@@ -4,10 +4,11 @@ pub struct FrameTexture {
 	pub texture: Texture,
 	pub format: wgpu::TextureFormat,
 	pub label: String,
+	pub compare: Option<wgpu::CompareFunction>,
 }
 
 impl FrameTexture {
-	pub fn new(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration, format: wgpu::TextureFormat, label: &str) -> Self {
+	pub fn new(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration, format: wgpu::TextureFormat, label: &str, compare: Option<wgpu::CompareFunction>) -> Self {
 		let size = wgpu::Extent3d {
 			width: config.width,
 			height: config.height,
@@ -32,7 +33,7 @@ impl FrameTexture {
 			mag_filter: wgpu::FilterMode::Linear,
 			min_filter: wgpu::FilterMode::Linear,
 			mipmap_filter: wgpu::FilterMode::Nearest,
-			compare: Some(wgpu::CompareFunction::LessEqual),
+			compare,
 			lod_min_clamp: -100.0,
 			lod_max_clamp: 100.0,
 			..Default::default()
@@ -42,23 +43,28 @@ impl FrameTexture {
 			texture: Texture { texture, view, sampler },
 			format,
 			label: String::from(label),
+			compare,
 		}
 	}
 
 	pub fn recreate(&mut self, device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) {
-		self.texture = Self::new(device, config, self.format, self.label.as_str()).texture;
+		self.texture = Self::new(device, config, self.format, self.label.as_str(), self.compare).texture;
 	}
 }
 
 pub struct FrameTextures {
 	pub z_buffer: FrameTexture,
 	pub albedo: FrameTexture,
+	pub arm: FrameTexture,
+	// UPDATE HERE TO ADD FRAME TEXTURE
 }
 
 impl FrameTextures {
 	pub fn recreate_all(&mut self, device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) {
 		self.z_buffer.recreate(device, config);
 		self.albedo.recreate(device, config);
+		self.arm.recreate(device, config);
+		// UPDATE HERE TO ADD FRAME TEXTURE
 	}
 }
 
@@ -67,4 +73,6 @@ pub enum FrameTextureTypes {
 	Surface,
 	ZBuffer,
 	Albedo,
+	Arm,
+	// UPDATE HERE TO ADD FRAME TEXTURE
 }
