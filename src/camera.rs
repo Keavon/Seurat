@@ -28,9 +28,9 @@ impl SceneCamera {
 	pub fn new(context: &Context) -> Self {
 		let mut camera_uniform = CameraUniform::new();
 
-		let location: Point3<f32> = (0.0, 5.0, 10.0).into();
+		let location: Point3<f32> = (-10.0, 5.0, 0.0).into();
 		let pitch: Rad<f32> = cgmath::Deg(-20.0).into();
-		let yaw: Rad<f32> = cgmath::Deg(-90.0).into();
+		let yaw: Rad<f32> = cgmath::Deg(0.0).into();
 		camera_uniform.v_matrix = Self::calculate_v_matrix(location, pitch, yaw).into();
 
 		let projection = Projection::new(context.config.width, context.config.height, cgmath::Deg(45.0), 0.1, 100.0);

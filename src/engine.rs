@@ -43,17 +43,19 @@ impl Engine {
 			"Z-buffer frame texture",
 			Some(wgpu::CompareFunction::LessEqual),
 		);
-		let tangent_space_fragment_location = FrameTexture::new(&context.device, &context.config, wgpu::TextureFormat::Rgba16Float, "TangentSpaceFragmentLocation frame texture", None);
-		let tangent_space_eye_location = FrameTexture::new(&context.device, &context.config, wgpu::TextureFormat::Rgba16Float, "TangentSpaceEyeLocation frame texture", None);
-		let tangent_space_light_location = FrameTexture::new(&context.device, &context.config, wgpu::TextureFormat::Rgba16Float, "TangentSpaceLightLocation frame texture", None);
+		let world_space_fragment_location = FrameTexture::new(&context.device, &context.config, wgpu::TextureFormat::Rgba16Float, "TangentSpaceFragmentLocation frame texture", None);
+		let world_space_normal = FrameTexture::new(&context.device, &context.config, wgpu::TextureFormat::Rgba16Float, "TangentSpaceNormal frame texture", None);
+		let world_space_eye_location = FrameTexture::new(&context.device, &context.config, wgpu::TextureFormat::Rgba16Float, "TangentSpaceEyeLocation frame texture", None);
+		let world_space_light_location = FrameTexture::new(&context.device, &context.config, wgpu::TextureFormat::Rgba16Float, "TangentSpaceLightLocation frame texture", None);
 		let albedo_map = FrameTexture::new(&context.device, &context.config, wgpu::TextureFormat::Bgra8UnormSrgb, "AlbedoMap frame texture", None);
 		let arm_map = FrameTexture::new(&context.device, &context.config, wgpu::TextureFormat::Bgra8Unorm, "ArmMap frame texture", None);
 		let normal_map = FrameTexture::new(&context.device, &context.config, wgpu::TextureFormat::Bgra8Unorm, "NormalMap frame texture", None);
 		let frame_textures = FrameTextures {
 			z_buffer,
-			tangent_space_fragment_location,
-			tangent_space_eye_location,
-			tangent_space_light_location,
+			world_space_fragment_location,
+			world_space_normal,
+			world_space_eye_location,
+			world_space_light_location,
 			albedo_map,
 			arm_map,
 			normal_map,
@@ -93,10 +95,11 @@ impl Engine {
 		// Shaders
 		let temporary_camera = SceneCamera::new(&self.context);
 
-		let blit_shader = {
-			let tangent_space_fragment_location = ShaderBinding::Texture(ShaderBindingTexture::default());
-			let tangent_space_eye_location = ShaderBinding::Texture(ShaderBindingTexture::default());
-			let tangent_space_light_location = ShaderBinding::Texture(ShaderBindingTexture::default());
+		let pbr_blit_world_space_shader = {
+			let world_space_fragment_location = ShaderBinding::Texture(ShaderBindingTexture::default());
+			let world_space_normal = ShaderBinding::Texture(ShaderBindingTexture::default());
+			let world_space_eye_location = ShaderBinding::Texture(ShaderBindingTexture::default());
+			let world_space_light_location = ShaderBinding::Texture(ShaderBindingTexture::default());
 			let albedo_map = ShaderBinding::Texture(ShaderBindingTexture::default());
 			let arm_map = ShaderBinding::Texture(ShaderBindingTexture::default());
 			let normal_map = ShaderBinding::Texture(ShaderBindingTexture::default());
@@ -105,11 +108,12 @@ impl Engine {
 			Shader::new(
 				&self.context,
 				assets_path,
-				"pbr_blit.wgsl",
+				"pbr_blit_world_space.wgsl",
 				vec![
-					tangent_space_fragment_location,
-					tangent_space_eye_location,
-					tangent_space_light_location,
+					world_space_fragment_location,
+					world_space_normal,
+					world_space_eye_location,
+					world_space_light_location,
 					albedo_map,
 					arm_map,
 					normal_map,
@@ -120,7 +124,7 @@ impl Engine {
 				None,
 			)
 		};
-		self.scene.resources.shaders.insert(String::from("pbr_blit.wgsl"), blit_shader);
+		self.scene.resources.shaders.insert(String::from("pbr_blit_world_space.wgsl"), pbr_blit_world_space_shader);
 
 		let lamp_shader = Shader::new(
 			&self.context,
@@ -128,6 +132,7 @@ impl Engine {
 			"lamp.wgsl",
 			vec![],
 			vec![
+				wgpu::TextureFormat::Rgba16Float,
 				wgpu::TextureFormat::Rgba16Float,
 				wgpu::TextureFormat::Rgba16Float,
 				wgpu::TextureFormat::Rgba16Float,
@@ -141,7 +146,7 @@ impl Engine {
 		);
 		self.scene.resources.shaders.insert(String::from("lamp.wgsl"), lamp_shader);
 
-		let deferred_shader_tangents = {
+		let pbr_deferred_world_space_shader = {
 			let albedo_map = ShaderBinding::Texture(ShaderBindingTexture::default()); // Albedo map
 			let arm_map = ShaderBinding::Texture(ShaderBindingTexture::default()); // AO/Roughness/Metalness map
 			let normal_map = ShaderBinding::Texture(ShaderBindingTexture::default()); // Normal map
@@ -149,11 +154,12 @@ impl Engine {
 			Shader::new(
 				&self.context,
 				assets_path,
-				"deferred_tangents.wgsl",
+				"pbr_deferred_world_space.wgsl",
 				// UPDATE HERE TO ADD FRAME TEXTURE
 				vec![albedo_map, arm_map, normal_map],
 				// UPDATE HERE TO ADD FRAME TEXTURE
 				vec![
+					wgpu::TextureFormat::Rgba16Float,
 					wgpu::TextureFormat::Rgba16Float,
 					wgpu::TextureFormat::Rgba16Float,
 					wgpu::TextureFormat::Rgba16Float,
@@ -166,9 +172,9 @@ impl Engine {
 				Some(&self.scene_lighting),
 			)
 		};
-		self.scene.resources.shaders.insert(String::from("deferred_tangents.wgsl"), deferred_shader_tangents);
+		self.scene.resources.shaders.insert(String::from("pbr_deferred_world_space.wgsl"), pbr_deferred_world_space_shader);
 
-		let deferred_shader_pbr_data = {
+		let pbr_deferred_pbr_data_shader = {
 			let albedo_map = ShaderBinding::Texture(ShaderBindingTexture::default()); // Albedo map
 			let arm_map = ShaderBinding::Texture(ShaderBindingTexture::default()); // AO/Roughness/Metalness map
 			let normal_map = ShaderBinding::Texture(ShaderBindingTexture::default()); // Normal map
@@ -176,7 +182,7 @@ impl Engine {
 			Shader::new(
 				&self.context,
 				assets_path,
-				"deferred_pbr_data.wgsl",
+				"pbr_deferred_pbr_data.wgsl",
 				// UPDATE HERE TO ADD FRAME TEXTURE
 				vec![albedo_map, arm_map, normal_map],
 				// UPDATE HERE TO ADD FRAME TEXTURE
@@ -193,7 +199,7 @@ impl Engine {
 				Some(&self.scene_lighting),
 			)
 		};
-		self.scene.resources.shaders.insert(String::from("deferred_pbr_data.wgsl"), deferred_shader_pbr_data);
+		self.scene.resources.shaders.insert(String::from("pbr_deferred_pbr_data.wgsl"), pbr_deferred_pbr_data_shader);
 
 		// Textures
 		self.scene.resources.textures.insert(
@@ -209,16 +215,30 @@ impl Engine {
 			Texture::load(&self.context.device, &self.context.queue, assets_path, "cube_normal.jpg", false).unwrap(),
 		);
 
+		self.scene.resources.textures.insert(
+			String::from("white_albedo.png"),
+			Texture::load(&self.context.device, &self.context.queue, assets_path, "white_albedo.png", true).unwrap(),
+		);
+		self.scene.resources.textures.insert(
+			String::from("white_arm.png"),
+			Texture::load(&self.context.device, &self.context.queue, assets_path, "white_arm.png", false).unwrap(),
+		);
+		self.scene.resources.textures.insert(
+			String::from("white_normal.png"),
+			Texture::load(&self.context.device, &self.context.queue, assets_path, "white_normal.png", false).unwrap(),
+		);
+
 		// Materials
 		self.scene.resources.materials.insert(
 			String::from("BLIT_QUAD.material"),
 			Material::new_blit_quad(
 				"BLIT_QUAD.material",
-				"pbr_blit.wgsl",
+				"pbr_blit_world_space.wgsl",
 				vec![
-					&self.frame_textures.tangent_space_fragment_location.texture,
-					&self.frame_textures.tangent_space_eye_location.texture,
-					&self.frame_textures.tangent_space_light_location.texture,
+					&self.frame_textures.world_space_fragment_location.texture,
+					&self.frame_textures.world_space_normal.texture,
+					&self.frame_textures.world_space_eye_location.texture,
+					&self.frame_textures.world_space_light_location.texture,
 					&self.frame_textures.albedo_map.texture,
 					&self.frame_textures.arm_map.texture,
 					&self.frame_textures.normal_map.texture,
@@ -227,11 +247,12 @@ impl Engine {
 				&self.context.device,
 			),
 		);
+
 		self.scene.resources.materials.insert(
-			String::from("deferred_tangents.material"),
+			String::from("pbr_deferred_world_space_cubes.material"),
 			Material::new(
-				"deferred_tangents.material",
-				"deferred_tangents.wgsl",
+				"pbr_deferred_world_space_cubes.material",
+				"pbr_deferred_world_space.wgsl",
 				vec![
 					MaterialDataBinding::Texture("cube_albedo.jpg"),
 					MaterialDataBinding::Texture("cube_arm.jpg"),
@@ -242,10 +263,10 @@ impl Engine {
 			),
 		);
 		self.scene.resources.materials.insert(
-			String::from("deferred_pbr_data.material"),
+			String::from("pbr_deferred_pbr_data_cubes.material"),
 			Material::new(
-				"deferred_pbr_data.material",
-				"deferred_pbr_data.wgsl",
+				"pbr_deferred_pbr_data_cubes.material",
+				"pbr_deferred_pbr_data.wgsl",
 				vec![
 					MaterialDataBinding::Texture("cube_albedo.jpg"),
 					MaterialDataBinding::Texture("cube_arm.jpg"),
@@ -255,9 +276,39 @@ impl Engine {
 				&self.context.device,
 			),
 		);
+
 		self.scene.resources.materials.insert(
-			String::from("lamp.material"),
-			Material::new("lamp.material", "lamp.wgsl", vec![], &self.scene.resources, &self.context.device),
+			String::from("pbr_deferred_world_space_white.material"),
+			Material::new(
+				"pbr_deferred_world_space_white.material",
+				"pbr_deferred_world_space.wgsl",
+				vec![
+					MaterialDataBinding::Texture("white_albedo.png"),
+					MaterialDataBinding::Texture("white_arm.png"),
+					MaterialDataBinding::Texture("white_normal.png"),
+				],
+				&self.scene.resources,
+				&self.context.device,
+			),
+		);
+		self.scene.resources.materials.insert(
+			String::from("pbr_deferred_pbr_data_white.material"),
+			Material::new(
+				"pbr_deferred_pbr_data_white.material",
+				"pbr_deferred_pbr_data.wgsl",
+				vec![
+					MaterialDataBinding::Texture("white_albedo.png"),
+					MaterialDataBinding::Texture("white_arm.png"),
+					MaterialDataBinding::Texture("white_normal.png"),
+				],
+				&self.scene.resources,
+				&self.context.device,
+			),
+		);
+
+		self.scene.resources.materials.insert(
+			String::from("pbr_deferred_world_space_lamp.material"),
+			Material::new("pbr_deferred_world_space_lamp.material", "lamp.wgsl", vec![], &self.scene.resources, &self.context.device),
 		);
 
 		// Meshes
@@ -267,6 +318,11 @@ impl Engine {
 		let meshes = Mesh::load(&self.context.device, &self.context.queue, assets_path, "cube.obj");
 		for mesh in meshes.unwrap_or_default() {
 			self.scene.resources.meshes.insert((String::from("cube.obj"), mesh.name.clone()), mesh);
+		}
+
+		let meshes = Mesh::load(&self.context.device, &self.context.queue, assets_path, "sponza.obj");
+		for mesh in meshes.unwrap_or_default() {
+			self.scene.resources.meshes.insert((String::from("sponza.obj"), mesh.name.clone()), mesh);
 		}
 	}
 
@@ -278,7 +334,7 @@ impl Engine {
 		// White cube representing the light
 		let lamp = self.scene.root.new_child("Lamp Model");
 
-		let mut lamp_model = Model::new(&self.scene.resources, ("cube.obj", "Cube_Finished_Cube.001"), "lamp.material");
+		let mut lamp_model = Model::new(&self.scene.resources, ("cube.obj", "Cube_Finished_Cube.001"), "pbr_deferred_world_space_lamp.material");
 		lamp_model.instances.instance_list[0].location.y = 4.;
 		lamp_model.instances.update_buffer(&self.context.device);
 		lamp.add_component(Component::Model(lamp_model));
@@ -289,17 +345,17 @@ impl Engine {
 		// Array of cubes
 		let cubes = self.scene.root.new_child("Cubes");
 
-		let mut cube_model = Model::new(&self.scene.resources, ("cube.obj", "Cube_Finished_Cube.001"), "deferred_tangents.material");
+		let mut cube_model = Model::new(&self.scene.resources, ("cube.obj", "Cube_Finished_Cube.001"), "pbr_deferred_world_space_cubes.material");
 
 		const NUM_INSTANCES_PER_ROW: u32 = 10;
-		const SPACE_BETWEEN: f32 = 3.0;
+		const SPACE_BETWEEN: f32 = 1.0;
 		cube_model.instances.instance_list = (0..NUM_INSTANCES_PER_ROW)
 			.flat_map(|z| {
 				(0..NUM_INSTANCES_PER_ROW).map(move |x| {
 					let x = SPACE_BETWEEN * (x as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
 					let z = SPACE_BETWEEN * (z as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
 
-					let location = cgmath::Vector3 { x, y: 0., z };
+					let location = cgmath::Vector3 { x, y: 1., z };
 
 					let rotation = if location.is_zero() {
 						cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0))
@@ -307,7 +363,7 @@ impl Engine {
 						cgmath::Quaternion::from_axis_angle(location.normalize(), cgmath::Deg(45.0))
 					};
 
-					let scale = cgmath::Vector3 { x: 1., y: 1., z: 1. };
+					let scale = cgmath::Vector3 { x: 0.25, y: 0.25, z: 0.25 };
 
 					Instance { location, rotation, scale }
 				})
@@ -316,6 +372,14 @@ impl Engine {
 		cube_model.instances.update_buffer(&self.context.device);
 
 		cubes.add_component(Component::Model(cube_model));
+
+		// Sponza
+		let sponza = self.scene.root.new_child("Sponza");
+
+		let mut sponza_model = Model::new(&self.scene.resources, ("sponza.obj", "sponza"), "pbr_deferred_world_space_white.material");
+		sponza_model.instances.update_buffer(&self.context.device);
+
+		sponza.add_component(Component::Model(sponza_model));
 	}
 
 	fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -437,9 +501,10 @@ impl Engine {
 		let frame_texture_from_id = |frame_texture_type: FrameTextureTypes| match frame_texture_type {
 			FrameTextureTypes::Surface => &surface_texture_view,
 			FrameTextureTypes::ZBuffer => &self.frame_textures.z_buffer.texture.view,
-			FrameTextureTypes::TangentSpaceFragmentLocation => &self.frame_textures.tangent_space_fragment_location.texture.view,
-			FrameTextureTypes::TangentSpaceEyeLocation => &self.frame_textures.tangent_space_eye_location.texture.view,
-			FrameTextureTypes::TangentSpaceLightLocation => &self.frame_textures.tangent_space_light_location.texture.view,
+			FrameTextureTypes::WorldSpaceFragmentLocation => &self.frame_textures.world_space_fragment_location.texture.view,
+			FrameTextureTypes::WorldSpaceNormal => &self.frame_textures.world_space_normal.texture.view,
+			FrameTextureTypes::WorldSpaceEyeLocation => &self.frame_textures.world_space_eye_location.texture.view,
+			FrameTextureTypes::WorldSpaceLightLocation => &self.frame_textures.world_space_light_location.texture.view,
 			FrameTextureTypes::AlbedoMap => &self.frame_textures.albedo_map.texture.view,
 			FrameTextureTypes::ArmMap => &self.frame_textures.arm_map.texture.view,
 			FrameTextureTypes::NormalMap => &self.frame_textures.normal_map.texture.view,
@@ -453,10 +518,11 @@ impl Engine {
 				label: String::from("Forward: Deferred Tangents"),
 				depth_attachment: true,
 				color_attachment_types: vec![
-					FrameTextureTypes::TangentSpaceFragmentLocation,
-					FrameTextureTypes::TangentSpaceEyeLocation,
-					FrameTextureTypes::TangentSpaceLightLocation,
-					// FrameTextureTypes::AlbedoMap, // TODO: FOO
+					FrameTextureTypes::WorldSpaceFragmentLocation,
+					FrameTextureTypes::WorldSpaceNormal,
+					FrameTextureTypes::WorldSpaceEyeLocation,
+					FrameTextureTypes::WorldSpaceLightLocation,
+					// FrameTextureTypes::AlbedoMap,
 					// FrameTextureTypes::ArmMap,
 					// FrameTextureTypes::NormalMap,
 					// UPDATE HERE TO ADD FRAME TEXTURE
@@ -472,7 +538,7 @@ impl Engine {
 					// FrameTextureTypes::TangentSpaceFragmentLocation,
 					// FrameTextureTypes::TangentSpaceEyeLocation,
 					// FrameTextureTypes::TangentSpaceLightLocation,
-					FrameTextureTypes::AlbedoMap, // TODO: FOO
+					FrameTextureTypes::AlbedoMap,
 					FrameTextureTypes::ArmMap,
 					FrameTextureTypes::NormalMap,
 					// UPDATE HERE TO ADD FRAME TEXTURE
@@ -522,14 +588,15 @@ impl Engine {
 
 			if pass.draw_quad_not_scene {
 				self.scene.resources.materials.insert(
-					String::from("pbr_blit.wgsl"),
+					String::from("pbr_blit_world_space.wgsl"),
 					Material::new_blit_quad(
 						"BLIT_QUAD.material",
-						"pbr_blit.wgsl",
+						"pbr_blit_world_space.wgsl",
 						vec![
-							&self.frame_textures.tangent_space_fragment_location.texture,
-							&self.frame_textures.tangent_space_eye_location.texture,
-							&self.frame_textures.tangent_space_light_location.texture,
+							&self.frame_textures.world_space_fragment_location.texture,
+							&self.frame_textures.world_space_normal.texture,
+							&self.frame_textures.world_space_eye_location.texture,
+							&self.frame_textures.world_space_light_location.texture,
 							&self.frame_textures.albedo_map.texture,
 							&self.frame_textures.arm_map.texture,
 							&self.frame_textures.normal_map.texture,
@@ -558,8 +625,10 @@ impl Engine {
 				if let Component::Model(model) = component {
 					let mesh = &self.scene.resources.meshes[model.mesh];
 					let mut material = &self.scene.resources.materials[model.material];
-					if monkey && material.name == "deferred_tangents.material" {
-						material = self.scene.resources.materials.get("deferred_pbr_data.material").unwrap();
+					if monkey && material.name == "pbr_deferred_world_space_cubes.material" {
+						material = self.scene.resources.materials.get("pbr_deferred_pbr_data_cubes.material").unwrap();
+					} else if monkey && material.name == "pbr_deferred_world_space_white.material" {
+						material = self.scene.resources.materials.get("pbr_deferred_pbr_data_white.material").unwrap();
 					} else if monkey {
 						continue;
 					}
