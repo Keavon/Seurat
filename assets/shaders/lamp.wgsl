@@ -30,8 +30,12 @@ struct VertexOutput {
 
 // Frames
 struct FragmentOutput {
-	[[location(0)]] surface: vec4<f32>;
-	// [[location(1)]] albedo: vec4<f32>;
+	[[location(0)]] tangent_space_fragment_location: vec4<f32>;
+	[[location(1)]] tangent_space_eye_location: vec4<f32>;
+	[[location(2)]] tangent_space_light_location: vec4<f32>;
+	// [[location(3)]] albedo_map: vec4<f32>;
+	// [[location(4)]] arm_map: vec4<f32>;
+	// [[location(5)]] normal_map: vec4<f32>;
 };
 
 // Vertex shader
@@ -70,6 +74,10 @@ fn main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
 fn main(in: VertexOutput) -> FragmentOutput {
 	return FragmentOutput(
 		vec4<f32>(in.color, 1.0),
+		vec4<f32>(in.color, 1.0),
+		vec4<f32>(in.color, 1.0),
+		// vec4<f32>(in.color, 1.0),
+		// vec4<f32>(in.color, 1.0),
 		// vec4<f32>(in.color, 1.0),
 	);
 }

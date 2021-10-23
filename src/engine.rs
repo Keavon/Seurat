@@ -43,10 +43,21 @@ impl Engine {
 			"Z-buffer frame texture",
 			Some(wgpu::CompareFunction::LessEqual),
 		);
-		let albedo = FrameTexture::new(&context.device, &context.config, wgpu::TextureFormat::Bgra8UnormSrgb, "Albedo frame texture", None);
-		let arm = FrameTexture::new(&context.device, &context.config, wgpu::TextureFormat::Bgra8UnormSrgb, "ARM frame texture", None);
-		let frame_textures = FrameTextures { z_buffer, albedo, arm };
-		// UPDATE HERE TO ADD FRAME TEXTURE
+		let tangent_space_fragment_location = FrameTexture::new(&context.device, &context.config, wgpu::TextureFormat::Rgba16Float, "TangentSpaceFragmentLocation frame texture", None);
+		let tangent_space_eye_location = FrameTexture::new(&context.device, &context.config, wgpu::TextureFormat::Rgba16Float, "TangentSpaceEyeLocation frame texture", None);
+		let tangent_space_light_location = FrameTexture::new(&context.device, &context.config, wgpu::TextureFormat::Rgba16Float, "TangentSpaceLightLocation frame texture", None);
+		let albedo_map = FrameTexture::new(&context.device, &context.config, wgpu::TextureFormat::Bgra8UnormSrgb, "AlbedoMap frame texture", None);
+		let arm_map = FrameTexture::new(&context.device, &context.config, wgpu::TextureFormat::Bgra8Unorm, "ArmMap frame texture", None);
+		let normal_map = FrameTexture::new(&context.device, &context.config, wgpu::TextureFormat::Bgra8Unorm, "NormalMap frame texture", None);
+		let frame_textures = FrameTextures {
+			z_buffer,
+			tangent_space_fragment_location,
+			tangent_space_eye_location,
+			tangent_space_light_location,
+			albedo_map,
+			arm_map,
+			normal_map,
+		}; // UPDATE HERE TO ADD FRAME TEXTURE
 
 		// Prepare the initial time value used to calculate the delta time since last frame
 		let frame_time = std::time::Instant::now();
@@ -83,47 +94,119 @@ impl Engine {
 		let temporary_camera = SceneCamera::new(&self.context);
 
 		let blit_shader = {
-			let color = ShaderBinding::Texture(ShaderBindingTexture::default());
-			let arm = ShaderBinding::Texture(ShaderBindingTexture::default());
+			let tangent_space_fragment_location = ShaderBinding::Texture(ShaderBindingTexture::default());
+			let tangent_space_eye_location = ShaderBinding::Texture(ShaderBindingTexture::default());
+			let tangent_space_light_location = ShaderBinding::Texture(ShaderBindingTexture::default());
+			let albedo_map = ShaderBinding::Texture(ShaderBindingTexture::default());
+			let arm_map = ShaderBinding::Texture(ShaderBindingTexture::default());
+			let normal_map = ShaderBinding::Texture(ShaderBindingTexture::default());
 			// UPDATE HERE TO ADD FRAME TEXTURE
-
-			Shader::new(&self.context, assets_path, "blit.wgsl", vec![color, arm], false, 1, None, None)
-		};
-		self.scene.resources.shaders.insert(String::from("blit.wgsl"), blit_shader);
-
-		let light_shader = Shader::new(&self.context, assets_path, "lamp.wgsl", vec![], true, 1, Some(&temporary_camera), Some(&self.scene_lighting));
-		self.scene.resources.shaders.insert(String::from("lamp.wgsl"), light_shader);
-
-		let pbr_shader = {
-			let albedo = ShaderBinding::Texture(ShaderBindingTexture::default()); // Albedo map
-			let arm = ShaderBinding::Texture(ShaderBindingTexture::default()); // AO/Roughness/Metalness map
-			let normal = ShaderBinding::Texture(ShaderBindingTexture::default()); // Normal map
 
 			Shader::new(
 				&self.context,
 				assets_path,
-				"pbr.wgsl",
-				vec![albedo, arm, normal],
+				"pbr_blit.wgsl",
+				vec![
+					tangent_space_fragment_location,
+					tangent_space_eye_location,
+					tangent_space_light_location,
+					albedo_map,
+					arm_map,
+					normal_map,
+				],
+				vec![self.context.config.format],
+				false,
+				None,
+				None,
+			)
+		};
+		self.scene.resources.shaders.insert(String::from("pbr_blit.wgsl"), blit_shader);
+
+		let lamp_shader = Shader::new(
+			&self.context,
+			assets_path,
+			"lamp.wgsl",
+			vec![],
+			vec![
+				wgpu::TextureFormat::Rgba16Float,
+				wgpu::TextureFormat::Rgba16Float,
+				wgpu::TextureFormat::Rgba16Float,
+				// wgpu::TextureFormat::Bgra8UnormSrgb,
+				// wgpu::TextureFormat::Bgra8Unorm,
+				// wgpu::TextureFormat::Bgra8Unorm,
+			],
+			true,
+			Some(&temporary_camera),
+			Some(&self.scene_lighting),
+		);
+		self.scene.resources.shaders.insert(String::from("lamp.wgsl"), lamp_shader);
+
+		let deferred_shader_tangents = {
+			let albedo_map = ShaderBinding::Texture(ShaderBindingTexture::default()); // Albedo map
+			let arm_map = ShaderBinding::Texture(ShaderBindingTexture::default()); // AO/Roughness/Metalness map
+			let normal_map = ShaderBinding::Texture(ShaderBindingTexture::default()); // Normal map
+
+			Shader::new(
+				&self.context,
+				assets_path,
+				"deferred_tangents.wgsl",
+				// UPDATE HERE TO ADD FRAME TEXTURE
+				vec![albedo_map, arm_map, normal_map],
+				// UPDATE HERE TO ADD FRAME TEXTURE
+				vec![
+					wgpu::TextureFormat::Rgba16Float,
+					wgpu::TextureFormat::Rgba16Float,
+					wgpu::TextureFormat::Rgba16Float,
+					// wgpu::TextureFormat::Bgra8UnormSrgb,
+					// wgpu::TextureFormat::Bgra8Unorm,
+					// wgpu::TextureFormat::Bgra8Unorm,
+				],
 				true,
-				2, // UPDATE HERE TO ADD FRAME TEXTURE
 				Some(&temporary_camera),
 				Some(&self.scene_lighting),
 			)
 		};
-		self.scene.resources.shaders.insert(String::from("pbr.wgsl"), pbr_shader);
+		self.scene.resources.shaders.insert(String::from("deferred_tangents.wgsl"), deferred_shader_tangents);
+
+		let deferred_shader_pbr_data = {
+			let albedo_map = ShaderBinding::Texture(ShaderBindingTexture::default()); // Albedo map
+			let arm_map = ShaderBinding::Texture(ShaderBindingTexture::default()); // AO/Roughness/Metalness map
+			let normal_map = ShaderBinding::Texture(ShaderBindingTexture::default()); // Normal map
+
+			Shader::new(
+				&self.context,
+				assets_path,
+				"deferred_pbr_data.wgsl",
+				// UPDATE HERE TO ADD FRAME TEXTURE
+				vec![albedo_map, arm_map, normal_map],
+				// UPDATE HERE TO ADD FRAME TEXTURE
+				vec![
+					// wgpu::TextureFormat::Rgba16Float,
+					// wgpu::TextureFormat::Rgba16Float,
+					// wgpu::TextureFormat::Rgba16Float,
+					wgpu::TextureFormat::Bgra8UnormSrgb,
+					wgpu::TextureFormat::Bgra8Unorm,
+					wgpu::TextureFormat::Bgra8Unorm,
+				],
+				true,
+				Some(&temporary_camera),
+				Some(&self.scene_lighting),
+			)
+		};
+		self.scene.resources.shaders.insert(String::from("deferred_pbr_data.wgsl"), deferred_shader_pbr_data);
 
 		// Textures
 		self.scene.resources.textures.insert(
 			String::from("cube_albedo.jpg"),
-			Texture::load(&self.context.device, &self.context.queue, assets_path, "cube_albedo.jpg", false).unwrap(),
+			Texture::load(&self.context.device, &self.context.queue, assets_path, "cube_albedo.jpg", true).unwrap(),
 		);
 		self.scene.resources.textures.insert(
 			String::from("cube_arm.jpg"),
-			Texture::load(&self.context.device, &self.context.queue, assets_path, "cube_arm.jpg", true).unwrap(),
+			Texture::load(&self.context.device, &self.context.queue, assets_path, "cube_arm.jpg", false).unwrap(),
 		);
 		self.scene.resources.textures.insert(
 			String::from("cube_normal.jpg"),
-			Texture::load(&self.context.device, &self.context.queue, assets_path, "cube_normal.jpg", true).unwrap(),
+			Texture::load(&self.context.device, &self.context.queue, assets_path, "cube_normal.jpg", false).unwrap(),
 		);
 
 		// Materials
@@ -131,17 +214,38 @@ impl Engine {
 			String::from("BLIT_QUAD.material"),
 			Material::new_blit_quad(
 				"BLIT_QUAD.material",
-				"blit.wgsl",
-				vec![&self.frame_textures.albedo.texture, &self.frame_textures.arm.texture], // UPDATE HERE TO ADD FRAME TEXTURE
+				"pbr_blit.wgsl",
+				vec![
+					&self.frame_textures.tangent_space_fragment_location.texture,
+					&self.frame_textures.tangent_space_eye_location.texture,
+					&self.frame_textures.tangent_space_light_location.texture,
+					&self.frame_textures.albedo_map.texture,
+					&self.frame_textures.arm_map.texture,
+					&self.frame_textures.normal_map.texture,
+				], // UPDATE HERE TO ADD FRAME TEXTURE
 				&self.scene.resources,
 				&self.context.device,
 			),
 		);
 		self.scene.resources.materials.insert(
-			String::from("pbr.material"),
+			String::from("deferred_tangents.material"),
 			Material::new(
-				"pbr.material",
-				"pbr.wgsl",
+				"deferred_tangents.material",
+				"deferred_tangents.wgsl",
+				vec![
+					MaterialDataBinding::Texture("cube_albedo.jpg"),
+					MaterialDataBinding::Texture("cube_arm.jpg"),
+					MaterialDataBinding::Texture("cube_normal.jpg"),
+				],
+				&self.scene.resources,
+				&self.context.device,
+			),
+		);
+		self.scene.resources.materials.insert(
+			String::from("deferred_pbr_data.material"),
+			Material::new(
+				"deferred_pbr_data.material",
+				"deferred_pbr_data.wgsl",
 				vec![
 					MaterialDataBinding::Texture("cube_albedo.jpg"),
 					MaterialDataBinding::Texture("cube_arm.jpg"),
@@ -185,7 +289,7 @@ impl Engine {
 		// Array of cubes
 		let cubes = self.scene.root.new_child("Cubes");
 
-		let mut cube_model = Model::new(&self.scene.resources, ("cube.obj", "Cube_Finished_Cube.001"), "pbr.material");
+		let mut cube_model = Model::new(&self.scene.resources, ("cube.obj", "Cube_Finished_Cube.001"), "deferred_tangents.material");
 
 		const NUM_INSTANCES_PER_ROW: u32 = 10;
 		const SPACE_BETWEEN: f32 = 3.0;
@@ -333,35 +437,66 @@ impl Engine {
 		let frame_texture_from_id = |frame_texture_type: FrameTextureTypes| match frame_texture_type {
 			FrameTextureTypes::Surface => &surface_texture_view,
 			FrameTextureTypes::ZBuffer => &self.frame_textures.z_buffer.texture.view,
-			FrameTextureTypes::Albedo => &self.frame_textures.albedo.texture.view,
-			FrameTextureTypes::Arm => &self.frame_textures.arm.texture.view,
+			FrameTextureTypes::TangentSpaceFragmentLocation => &self.frame_textures.tangent_space_fragment_location.texture.view,
+			FrameTextureTypes::TangentSpaceEyeLocation => &self.frame_textures.tangent_space_eye_location.texture.view,
+			FrameTextureTypes::TangentSpaceLightLocation => &self.frame_textures.tangent_space_light_location.texture.view,
+			FrameTextureTypes::AlbedoMap => &self.frame_textures.albedo_map.texture.view,
+			FrameTextureTypes::ArmMap => &self.frame_textures.arm_map.texture.view,
+			FrameTextureTypes::NormalMap => &self.frame_textures.normal_map.texture.view,
+			// UPDATE HERE TO ADD FRAME TEXTURE
 		};
 
 		let mut encoder = self.context.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("Render Encoder") });
 
 		let passes = vec![
 			Pass {
-				label: String::from("Forward"),
+				label: String::from("Forward: Deferred Tangents"),
 				depth_attachment: true,
-				color_attachment_types: vec![FrameTextureTypes::Albedo, FrameTextureTypes::Arm], // UPDATE HERE TO ADD FRAME TEXTURE
+				color_attachment_types: vec![
+					FrameTextureTypes::TangentSpaceFragmentLocation,
+					FrameTextureTypes::TangentSpaceEyeLocation,
+					FrameTextureTypes::TangentSpaceLightLocation,
+					// FrameTextureTypes::AlbedoMap, // TODO: FOO
+					// FrameTextureTypes::ArmMap,
+					// FrameTextureTypes::NormalMap,
+					// UPDATE HERE TO ADD FRAME TEXTURE
+				],
 				draw_quad_not_scene: false,
 				clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
+				monkey: false,
 			},
 			Pass {
-				label: String::from("Deferred"),
+				label: String::from("Forward: Deferred PBR Data"),
+				depth_attachment: true,
+				color_attachment_types: vec![
+					// FrameTextureTypes::TangentSpaceFragmentLocation,
+					// FrameTextureTypes::TangentSpaceEyeLocation,
+					// FrameTextureTypes::TangentSpaceLightLocation,
+					FrameTextureTypes::AlbedoMap, // TODO: FOO
+					FrameTextureTypes::ArmMap,
+					FrameTextureTypes::NormalMap,
+					// UPDATE HERE TO ADD FRAME TEXTURE
+				],
+				draw_quad_not_scene: false,
+				clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
+				monkey: true,
+			},
+			Pass {
+				label: String::from("Deferred: Blit to Surface"),
 				depth_attachment: true,
 				color_attachment_types: vec![FrameTextureTypes::Surface],
 				draw_quad_not_scene: true,
 				clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
+				monkey: false,
 			},
 		];
 
 		for pass in passes {
 			let color_attachments = pass
 				.color_attachment_types
-				.iter()
+				.into_iter()
 				.map(|frame_texture_type| wgpu::RenderPassColorAttachment {
-					view: frame_texture_from_id(*frame_texture_type),
+					view: frame_texture_from_id(frame_texture_type),
 					resolve_target: None,
 					ops: wgpu::Operations {
 						load: wgpu::LoadOp::Clear(pass.clear_color),
@@ -387,11 +522,19 @@ impl Engine {
 
 			if pass.draw_quad_not_scene {
 				self.scene.resources.materials.insert(
-					String::from("blit.wgsl"),
+					String::from("pbr_blit.wgsl"),
 					Material::new_blit_quad(
 						"BLIT_QUAD.material",
-						"blit.wgsl",
-						vec![&self.frame_textures.albedo.texture, &self.frame_textures.arm.texture], // UPDATE HERE TO ADD FRAME TEXTURE
+						"pbr_blit.wgsl",
+						vec![
+							&self.frame_textures.tangent_space_fragment_location.texture,
+							&self.frame_textures.tangent_space_eye_location.texture,
+							&self.frame_textures.tangent_space_light_location.texture,
+							&self.frame_textures.albedo_map.texture,
+							&self.frame_textures.arm_map.texture,
+							&self.frame_textures.normal_map.texture,
+							// UPDATE HERE TO ADD FRAME TEXTURE
+						],
 						&self.scene.resources,
 						&self.context.device,
 					),
@@ -399,7 +542,7 @@ impl Engine {
 
 				self.draw_quad(render_pass);
 			} else {
-				self.draw_scene(render_pass);
+				self.draw_scene(render_pass, pass.monkey);
 			}
 		}
 
@@ -409,12 +552,17 @@ impl Engine {
 		Ok(())
 	}
 
-	fn draw_scene<'a>(&'a self, mut render_pass: wgpu::RenderPass<'a>) {
+	fn draw_scene<'a>(&'a self, mut render_pass: wgpu::RenderPass<'a>, monkey: bool) {
 		for entity in &self.scene.root {
 			for component in &entity.components {
 				if let Component::Model(model) = component {
 					let mesh = &self.scene.resources.meshes[model.mesh];
-					let material = &self.scene.resources.materials[model.material];
+					let mut material = &self.scene.resources.materials[model.material];
+					if monkey && material.name == "deferred_tangents.material" {
+						material = self.scene.resources.materials.get("deferred_pbr_data.material").unwrap();
+					} else if monkey {
+						continue;
+					}
 					let shader = &self.scene.resources.shaders[material.shader_id];
 					let scene_camera = self.scene.find_entity(self.active_camera.as_str()).unwrap().get_cameras()[0];
 

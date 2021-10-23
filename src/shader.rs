@@ -19,13 +19,13 @@ impl Shader {
 		context: &Context,
 		directory: &Path,
 		file: &str,
-		shader_bindings: Vec<ShaderBinding>,
+		in_shader_bindings: Vec<ShaderBinding>,
+		out_color_formats: Vec<wgpu::TextureFormat>,
 		use_instances: bool,
-		fragment_targets: usize,
 		scene_camera: Option<&SceneCamera>,
 		scene_lighting: Option<&SceneLighting>,
 	) -> Self {
-		let bind_group_layout_entries = build_bind_group_layout_entries(shader_bindings.as_slice());
+		let bind_group_layout_entries = build_bind_group_layout_entries(in_shader_bindings.as_slice());
 		let bind_group_layout = context.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
 			entries: bind_group_layout_entries.as_slice(),
 			label: Some(format!("Shader \"{}\" bind group layout", file).as_str()),
@@ -55,10 +55,9 @@ impl Shader {
 		let render_pipeline = create_render_pipeline(
 			&context.device,
 			&render_pipeline_layout,
-			context.config.format,
+			out_color_formats,
 			Some(wgpu::TextureFormat::Depth32Float),
 			vertex_layouts.as_slice(),
-			fragment_targets,
 			wgpu::ShaderModuleDescriptor {
 				label: Some(format!("Shader \"{}\" module descriptor", file).as_str()),
 				source: wgpu::ShaderSource::Wgsl(shader_code.into()),
@@ -69,7 +68,7 @@ impl Shader {
 			bind_group_layout,
 			render_pipeline,
 			render_pipeline_layout,
-			shader_bindings,
+			shader_bindings: in_shader_bindings,
 		}
 	}
 }
@@ -128,10 +127,9 @@ fn build_bind_group_layout_entries(bindings: &[ShaderBinding]) -> Vec<wgpu::Bind
 fn create_render_pipeline(
 	device: &wgpu::Device,
 	layout: &wgpu::PipelineLayout,
-	color_format: wgpu::TextureFormat,
+	color_formats: Vec<wgpu::TextureFormat>,
 	depth_format: Option<wgpu::TextureFormat>,
 	vertex_layouts: &[wgpu::VertexBufferLayout],
-	fragment_targets: usize,
 	shader: wgpu::ShaderModuleDescriptor,
 ) -> wgpu::RenderPipeline {
 	let shader = device.create_shader_module(&shader);
@@ -147,9 +145,10 @@ fn create_render_pipeline(
 		fragment: Some(wgpu::FragmentState {
 			module: &shader,
 			entry_point: "main",
-			targets: (0..fragment_targets)
-				.map(|_| wgpu::ColorTargetState {
-					format: color_format,
+			targets: color_formats
+				.into_iter()
+				.map(|format| wgpu::ColorTargetState {
+					format,
 					blend: Some(wgpu::BlendState {
 						alpha: wgpu::BlendComponent::REPLACE,
 						color: wgpu::BlendComponent::REPLACE,

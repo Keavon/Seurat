@@ -1,23 +1,18 @@
 let PI: f32 = 3.14159265359;
 
-[[block]] struct Camera {
-	v_matrix: mat4x4<f32>;
-	p_matrix: mat4x4<f32>;
-};
-[[block]] struct Light {
-	location: vec3<f32>;
-	color: vec3<f32>;
-};
-
 // Uniforms
-[[group(0), binding(0)]] var<uniform> camera: Camera;
-[[group(1), binding(0)]] var<uniform> light: Light;
-[[group(2), binding(0)]] var t_albedo: texture_2d<f32>;
-[[group(2), binding(1)]] var s_albedo: sampler;
-[[group(2), binding(2)]] var t_arm: texture_2d<f32>;
-[[group(2), binding(3)]] var s_arm: sampler;
-[[group(2), binding(4)]] var t_normal: texture_2d<f32>;
-[[group(2), binding(5)]] var s_normal: sampler;
+[[group(0), binding(0)]] var t_tangent_space_fragment_location: texture_2d<f32>;
+[[group(0), binding(1)]] var s_tangent_space_fragment_location: sampler;
+[[group(0), binding(2)]] var t_tangent_space_eye_location: texture_2d<f32>;
+[[group(0), binding(3)]] var s_tangent_space_eye_location: sampler;
+[[group(0), binding(4)]] var t_tangent_space_light_location: texture_2d<f32>;
+[[group(0), binding(5)]] var s_tangent_space_light_location: sampler;
+[[group(0), binding(6)]] var t_albedo_map: texture_2d<f32>;
+[[group(0), binding(7)]] var s_albedo_map: sampler;
+[[group(0), binding(8)]] var t_arm_map: texture_2d<f32>;
+[[group(0), binding(9)]] var s_arm_map: sampler;
+[[group(0), binding(10)]] var t_normal_map: texture_2d<f32>;
+[[group(0), binding(11)]] var s_normal_map: sampler;
 
 // Attributes
 struct VertexInput {
@@ -26,74 +21,24 @@ struct VertexInput {
 	[[location(2)]] normal: vec3<f32>;
 	[[location(3)]] tangent: vec3<f32>;
 };
-struct InstanceInput {
-	[[location(4)]] model_matrix_0: vec4<f32>;
-	[[location(5)]] model_matrix_1: vec4<f32>;
-	[[location(6)]] model_matrix_2: vec4<f32>;
-	[[location(7)]] model_matrix_3: vec4<f32>;
-};
 
 // Varyings
 struct VertexOutput {
-	[[builtin(position)]] clip_space_fragment_location: vec4<f32>;
-	// [[location(0)]] world_space_fragment_location: vec3<f32>;
-	// [[location(1)]] world_space_normal: vec3<f32>;
-	[[location(0)]] uv: vec2<f32>;
-	[[location(1)]] tangent_space_fragment_location: vec3<f32>;
-	[[location(2)]] tangent_space_eye_location: vec3<f32>;
-	[[location(3)]] tangent_space_light_location: vec3<f32>;
+	[[builtin(position)]] position: vec4<f32>;
+	[[location(0)]] tex_coords: vec2<f32>;
 };
 
 // Frames
 struct FragmentOutput {
-	[[location(0)]] albedo: vec4<f32>;
+	[[location(0)]] color: vec4<f32>;
 };
 
 // Vertex shader
 [[stage(vertex)]]
-fn main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
-	// MVP matrices
-	let m = mat4x4<f32>(instance.model_matrix_0, instance.model_matrix_1, instance.model_matrix_2, instance.model_matrix_3);
-	let v = camera.v_matrix;
-	let p = camera.p_matrix;
-	let vp = p * v;
-
-	// Vertex data in model space
-	let model_space_position = vec4<f32>(model.position, 1.0);
-	let model_space_normal = vec4<f32>(model.normal, 0.0);
-	let model_space_tangent = vec4<f32>(model.tangent, 0.0);
-
-	// Vertex data in world space
-	let world_space_fragment_location = m * model_space_position;
-	let world_space_normal = normalize((m * model_space_normal).xyz);
-	var world_space_tangent = normalize((m * model_space_tangent).xyz);
-	world_space_tangent = normalize(world_space_tangent - dot(world_space_tangent, world_space_normal) * world_space_normal);
-	let world_space_bitangent = cross(world_space_normal, world_space_tangent);
-
-	// Vertex data in clip space (XY: -1 to 1, Z: 0 to 1)
-	let clip_space_fragment_location = vp * world_space_fragment_location;
-
-	// Location data in world space
-	let world_space_eye_location = v[3].xyz;
-	let world_space_light_location = light.location;
-
-	// Location data in tangent-relative world space (required by normal maps)
-	let to_tangent_space = transpose(mat3x3<f32>(world_space_tangent, world_space_bitangent, world_space_normal));
-	let tangent_space_fragment_location = to_tangent_space * world_space_fragment_location.xyz;
-	let tangent_space_eye_location = to_tangent_space * world_space_eye_location;
-	let tangent_space_light_location = to_tangent_space * world_space_light_location;
-
-	// Send varying values to the fragment shader
-	return VertexOutput(
-		clip_space_fragment_location,
-		// world_space_fragment_location.xyz,
-		// world_space_normal,
-		model.uv,
-		tangent_space_fragment_location,
-		tangent_space_eye_location,
-		tangent_space_light_location,
-	);
+fn main(model: VertexInput) -> VertexOutput {
+	return VertexOutput(vec4<f32>(model.position, 1.), model.position.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5));
 }
+
 
 fn fresnel_schlick(cos_theta: f32, f0: vec3<f32>) -> vec3<f32> {
 	return f0 + (1.0 - f0) * pow(clamp(1.0 - cos_theta, 0.0, 1.0), 5.0);
@@ -137,9 +82,9 @@ fn geometry_smith(n: vec3<f32>, v: vec3<f32>, l: vec3<f32>, roughness: f32) -> f
 [[stage(fragment)]]
 fn main(in: VertexOutput) -> FragmentOutput {
 	// Texture lookup
-	let albedo_map: vec4<f32> = textureSample(t_albedo, s_albedo, in.uv);
-	let arm_map: vec4<f32> = textureSample(t_arm, s_arm, in.uv);
-	var normal_map: vec3<f32> = textureSample(t_normal, s_normal, in.uv).xyz;
+	let albedo_map = textureSample(t_albedo_map, s_albedo_map, in.tex_coords);
+	let arm_map = textureSample(t_arm_map, s_arm_map, in.tex_coords);
+	var normal_map = textureSample(t_normal_map, s_normal_map, in.tex_coords).xyz;
 
 	// PBR input data
 	let albedo = pow(albedo_map.rgb, vec3<f32>(2.2));
@@ -150,6 +95,7 @@ fn main(in: VertexOutput) -> FragmentOutput {
 	let ao = arm_map.x;
 	let roughness = arm_map.y;
 	let metallic = arm_map.z;
+	let light_color = vec3<f32>(25.);
 
 	// Locations
 	// let world_space_fragment_location = in.world_space_fragment_location;
@@ -157,14 +103,14 @@ fn main(in: VertexOutput) -> FragmentOutput {
 	// let world_space_light_location = light.location;
 	// let world_space_normal = in.world_space_normal;
 
-	let fragment_location = in.tangent_space_fragment_location;
-	let eye_location = in.tangent_space_eye_location;
-	let light_location = in.tangent_space_light_location;
+	let fragment_location = textureSample(t_tangent_space_fragment_location, s_tangent_space_fragment_location, in.tex_coords).xyz;
+	let eye_location = textureSample(t_tangent_space_eye_location, s_tangent_space_eye_location, in.tex_coords).xyz;
+	let light_location = textureSample(t_tangent_space_light_location, s_tangent_space_light_location, in.tex_coords).xyz;
 
 	// Lights
 	let lights_count = 1u;
 	var light_locations = array<vec3<f32>, 1>(light_location);
-	var light_colors = array<vec3<f32>, 1>(light.color);
+	var light_colors = array<vec3<f32>, 1>(light_color);
 
 	// Per-fragment unit vectors
 	let v = normalize(eye_location - fragment_location);

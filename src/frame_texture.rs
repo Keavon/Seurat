@@ -54,16 +54,24 @@ impl FrameTexture {
 
 pub struct FrameTextures {
 	pub z_buffer: FrameTexture,
-	pub albedo: FrameTexture,
-	pub arm: FrameTexture,
+	pub tangent_space_fragment_location: FrameTexture,
+	pub tangent_space_eye_location: FrameTexture,
+	pub tangent_space_light_location: FrameTexture,
+	pub albedo_map: FrameTexture,
+	pub arm_map: FrameTexture,
+	pub normal_map: FrameTexture,
 	// UPDATE HERE TO ADD FRAME TEXTURE
 }
 
 impl FrameTextures {
 	pub fn recreate_all(&mut self, device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) {
 		self.z_buffer.recreate(device, config);
-		self.albedo.recreate(device, config);
-		self.arm.recreate(device, config);
+		self.tangent_space_fragment_location.recreate(device, config);
+		self.tangent_space_eye_location.recreate(device, config);
+		self.tangent_space_light_location.recreate(device, config);
+		self.albedo_map.recreate(device, config);
+		self.arm_map.recreate(device, config);
+		self.normal_map.recreate(device, config);
 		// UPDATE HERE TO ADD FRAME TEXTURE
 	}
 }
@@ -72,7 +80,11 @@ impl FrameTextures {
 pub enum FrameTextureTypes {
 	Surface,
 	ZBuffer,
-	Albedo,
-	Arm,
+	TangentSpaceFragmentLocation,
+	TangentSpaceEyeLocation,
+	TangentSpaceLightLocation,
+	AlbedoMap,
+	ArmMap,
+	NormalMap,
 	// UPDATE HERE TO ADD FRAME TEXTURE
 }
