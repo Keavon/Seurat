@@ -20,6 +20,8 @@ tobj = "3.0"
 rayon = "1.4"
 palette = "0.6.0"
 indexmap = "1.7.0"
+rand = "0.8.4"
+half = { version = "1.8.2", features = [ "bytemuck" ] }
 
 [build-dependencies]
 anyhow = "1.0"

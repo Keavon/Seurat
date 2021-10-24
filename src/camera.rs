@@ -77,9 +77,11 @@ impl SceneCamera {
 		}
 	}
 
-	pub fn update_v_p_matrices(&mut self) {
+	pub fn update_v_p_matrices(&mut self, queue: &mut wgpu::Queue) {
 		self.camera_uniform.v_matrix = Self::calculate_v_matrix(self.location, self.pitch, self.yaw).into();
 		self.camera_uniform.p_matrix = self.projection.p_matrix().into();
+
+		queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera_uniform]));
 	}
 
 	pub fn calculate_v_matrix(location: Point3<f32>, pitch: Rad<f32>, yaw: Rad<f32>) -> Matrix4<f32> {

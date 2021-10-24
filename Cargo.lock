@@ -690,6 +690,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "half"
+version = "1.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eabb4a44450da02c90444cf74558da904edde8fb4e9035a9a6a4e15445af0bd7"
+dependencies = [
+ "bytemuck",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1535,11 +1544,13 @@ dependencies = [
  "env_logger",
  "fs_extra",
  "glob",
+ "half",
  "image",
  "indexmap",
  "log",
  "palette",
  "pollster",
+ "rand",
  "rayon",
  "tobj",
  "wgpu",

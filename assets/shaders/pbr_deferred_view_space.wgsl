@@ -34,19 +34,18 @@ struct InstanceInput {
 // Varyings
 struct VertexOutput {
 	[[builtin(position)]] clip_space_fragment_location: vec4<f32>;
-	[[location(0)]] uv: vec2<f32>;
-	[[location(1)]] world_space_fragment_location: vec3<f32>;
-	[[location(2)]] world_space_normal: vec3<f32>;
-	[[location(3)]] world_space_eye_location: vec3<f32>;
-	[[location(4)]] world_space_light_location: vec3<f32>;
+	[[location(0)]] view_space_fragment_location: vec3<f32>;
+	[[location(1)]] view_space_normal: vec3<f32>;
+	[[location(2)]] view_space_eye_location: vec3<f32>;
+	[[location(3)]] view_space_light_location: vec3<f32>;
 };
 
 // Frames
 struct FragmentOutput {
-	[[location(0)]] world_space_fragment_location: vec4<f32>;
-	[[location(1)]] world_space_normal: vec4<f32>;
-	[[location(2)]] world_space_eye_location: vec4<f32>;
-	[[location(3)]] world_space_light_location: vec4<f32>;
+	[[location(0)]] view_space_fragment_location: vec4<f32>;
+	[[location(1)]] view_space_normal: vec4<f32>;
+	[[location(2)]] view_space_eye_location: vec4<f32>;
+	[[location(3)]] view_space_light_location: vec4<f32>;
 	// [[location(3)]] albedo_map: vec4<f32>;
 	// [[location(4)]] arm_map: vec4<f32>;
 	// [[location(5)]] normal_map: vec4<f32>;
@@ -69,9 +68,9 @@ fn main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
 	// Vertex data in world space
 	let world_space_fragment_location = m * model_space_position;
 	let world_space_normal = normalize((m * model_space_normal).xyz);
-	var world_space_tangent = normalize((m * model_space_tangent).xyz);
-	world_space_tangent = normalize(world_space_tangent - dot(world_space_tangent, world_space_normal) * world_space_normal);
-	let world_space_bitangent = cross(world_space_normal, world_space_tangent);
+	// var world_space_tangent = normalize((m * model_space_tangent).xyz);
+	// world_space_tangent = normalize(world_space_tangent - dot(world_space_tangent, world_space_normal) * world_space_normal);
+	// let world_space_bitangent = cross(world_space_normal, world_space_tangent);
 
 	// Vertex data in clip space (XY: -1 to 1, Z: 0 to 1)
 	let clip_space_fragment_location = vp * world_space_fragment_location;
@@ -89,11 +88,10 @@ fn main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
 	// Send varying values to the fragment shader
 	return VertexOutput(
 		clip_space_fragment_location,
-		model.uv,
-		world_space_fragment_location.xyz,
-		world_space_normal,
-		world_space_eye_location,
-		world_space_light_location,
+		(v * vec4<f32>(world_space_fragment_location.xyz, 1.)).xyz,
+		(v * vec4<f32>(world_space_normal.xyz, 0.)).xyz,
+		(v * vec4<f32>(world_space_eye_location.xyz, 1.)).xyz,
+		(v * vec4<f32>(world_space_light_location.xyz, 1.)).xyz,
 	);
 }
 
@@ -101,10 +99,10 @@ fn main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
 [[stage(fragment)]]
 fn main(in: VertexOutput) -> FragmentOutput {
 	return FragmentOutput(
-		vec4<f32>(in.world_space_fragment_location, 1.),
-		vec4<f32>(in.world_space_normal, 1.),
-		vec4<f32>(in.world_space_eye_location, 1.),
-		vec4<f32>(in.world_space_light_location, 1.),
+		vec4<f32>(in.view_space_fragment_location, 1.),
+		vec4<f32>(in.view_space_normal, 0.),
+		vec4<f32>(in.view_space_eye_location, 1.),
+		vec4<f32>(in.view_space_light_location, 1.),
 		// textureSample(t_albedo, s_albedo, in.uv),
 		// textureSample(t_arm, s_arm, in.uv),
 		// textureSample(t_normal, s_normal, in.uv),

@@ -15,6 +15,7 @@ mod pass;
 mod scene;
 mod scripts;
 mod shader;
+mod ssao;
 mod texture;
 mod transform;
 

@@ -15,6 +15,8 @@ let PI: f32 = 3.14159265359;
 [[group(0), binding(11)]] var s_arm_map: sampler;
 [[group(0), binding(12)]] var t_normal_map: texture_2d<f32>;
 [[group(0), binding(13)]] var s_normal_map: sampler;
+[[group(0), binding(14)]] var t_ssao: texture_2d<f32>;
+[[group(0), binding(15)]] var s_ssao: sampler;
 
 // Attributes
 struct VertexInput {
@@ -86,14 +88,15 @@ fn main(in: VertexOutput) -> FragmentOutput {
 	// Texture lookup
 	let albedo_map = textureSample(t_albedo_map, s_albedo_map, in.tex_coords);
 	let arm_map = textureSample(t_arm_map, s_arm_map, in.tex_coords);
-	var normal_map = textureSample(t_normal_map, s_normal_map, in.tex_coords).xyz;
+	let normal_map = textureSample(t_normal_map, s_normal_map, in.tex_coords).xyz;
+	let ssao = textureSample(t_ssao, s_ssao, in.tex_coords).r;
 
 	// PBR input data
 	let albedo = pow(albedo_map.rgb, vec3<f32>(2.2));
 	let alpha = albedo_map.a;
 	// let normal_map_strength = 1.;
 	// let normal = mix(vec3<f32>(0., 0., 1.), normal_map * 2. - 1., normal_map_strength);
-	let ambient = vec3<f32>(0.03);
+	let ambient = vec3<f32>(0.1);
 	let ao = arm_map.x;
 	let roughness = arm_map.y;
 	let metallic = arm_map.z;
@@ -165,7 +168,8 @@ fn main(in: VertexOutput) -> FragmentOutput {
 	}
 
 	// Add ambient occlusion
-	let ambient_component = albedo * ambient * ao * ao;
+	let ambient_removal = ao * ssao;
+	let ambient_component = albedo * ambient * pow(ambient_removal, 3.);
 	color = color + ambient_component;
 
 	// Tone mapping
@@ -173,6 +177,6 @@ fn main(in: VertexOutput) -> FragmentOutput {
 
 	// Gamma correction (linear to gamma)
 	color = pow(color, vec3<f32>(1. / 2.2));
+
 	return FragmentOutput(vec4<f32>(color, 1.));
-	// return FragmentOutput(vec4<f32>(fragment_location, 1.));
 }
