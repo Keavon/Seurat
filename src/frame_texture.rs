@@ -56,18 +56,11 @@ pub struct FrameTextures {
 	pub z_buffer: FrameTexture,
 	pub world_space_fragment_location: FrameTexture,
 	pub world_space_normal: FrameTexture,
-	pub world_space_eye_location: FrameTexture,
-	pub world_space_light_location: FrameTexture,
-	pub view_space_fragment_location: FrameTexture,
-	pub view_space_normal: FrameTexture,
-	pub view_space_eye_location: FrameTexture,
-	pub view_space_light_location: FrameTexture,
 	pub albedo_map: FrameTexture,
 	pub arm_map: FrameTexture,
 	pub normal_map: FrameTexture,
 	pub ssao_kernel_map: FrameTexture,
 	pub ssao_blurred_map: FrameTexture,
-	// UPDATE HERE TO ADD FRAME TEXTURE
 }
 
 impl FrameTextures {
@@ -75,18 +68,11 @@ impl FrameTextures {
 		self.z_buffer.recreate(device, config);
 		self.world_space_fragment_location.recreate(device, config);
 		self.world_space_normal.recreate(device, config);
-		self.world_space_eye_location.recreate(device, config);
-		self.world_space_light_location.recreate(device, config);
-		self.view_space_fragment_location.recreate(device, config);
-		self.view_space_normal.recreate(device, config);
-		self.view_space_eye_location.recreate(device, config);
-		self.view_space_light_location.recreate(device, config);
 		self.albedo_map.recreate(device, config);
 		self.arm_map.recreate(device, config);
 		self.normal_map.recreate(device, config);
 		self.ssao_kernel_map.recreate(device, config);
 		self.ssao_blurred_map.recreate(device, config);
-		// UPDATE HERE TO ADD FRAME TEXTURE
 	}
 }
 
@@ -96,16 +82,9 @@ pub enum FrameTextureTypes {
 	ZBuffer,
 	WorldSpaceFragmentLocation,
 	WorldSpaceNormal,
-	WorldSpaceEyeLocation,
-	WorldSpaceLightLocation,
-	ViewSpaceFragmentLocation,
-	ViewSpaceNormal,
-	ViewSpaceEyeLocation,
-	ViewSpaceLightLocation,
 	AlbedoMap,
 	ArmMap,
 	NormalMap,
 	SSAOKernelMap,
 	SSAOBlurredMap,
-	// UPDATE HERE TO ADD FRAME TEXTURE
 }

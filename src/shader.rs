@@ -12,6 +12,8 @@ pub struct Shader {
 	pub render_pipeline: RenderPipeline,
 	pub render_pipeline_layout: PipelineLayout,
 	pub shader_bindings: Vec<ShaderBinding>,
+	pub includes_camera: bool,
+	pub includes_lighting: bool,
 }
 
 impl Shader {
@@ -21,6 +23,7 @@ impl Shader {
 		file: &str,
 		in_shader_bindings: Vec<ShaderBinding>,
 		out_color_formats: Vec<wgpu::TextureFormat>,
+		depth_format: Option<wgpu::TextureFormat>,
 		use_instances: bool,
 		scene_camera: Option<&SceneCamera>,
 		scene_lighting: Option<&SceneLighting>,
@@ -56,7 +59,7 @@ impl Shader {
 			&context.device,
 			&render_pipeline_layout,
 			out_color_formats,
-			Some(wgpu::TextureFormat::Depth32Float),
+			depth_format,
 			vertex_layouts.as_slice(),
 			wgpu::ShaderModuleDescriptor {
 				label: Some(format!("Shader \"{}\" module descriptor", file).as_str()),
@@ -69,6 +72,8 @@ impl Shader {
 			render_pipeline,
 			render_pipeline_layout,
 			shader_bindings: in_shader_bindings,
+			includes_camera: scene_camera.is_some(),
+			includes_lighting: scene_lighting.is_some(),
 		}
 	}
 }

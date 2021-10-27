@@ -1,22 +1,29 @@
 let PI: f32 = 3.14159265359;
 
+[[block]] struct Camera {
+	v_matrix: mat4x4<f32>;
+	p_matrix: mat4x4<f32>;
+};
+[[block]] struct Light {
+	location: vec3<f32>;
+	color: vec3<f32>;
+};
+
 // Uniforms
-[[group(0), binding(0)]] var t_world_space_fragment_location: texture_2d<f32>;
-[[group(0), binding(1)]] var s_world_space_fragment_location: sampler;
-[[group(0), binding(2)]] var t_world_space_normal: texture_2d<f32>;
-[[group(0), binding(3)]] var s_world_space_normal: sampler;
-[[group(0), binding(4)]] var t_world_space_eye_location: texture_2d<f32>;
-[[group(0), binding(5)]] var s_world_space_eye_location: sampler;
-[[group(0), binding(6)]] var t_world_space_light_location: texture_2d<f32>;
-[[group(0), binding(7)]] var s_world_space_light_location: sampler;
-[[group(0), binding(8)]] var t_albedo_map: texture_2d<f32>;
-[[group(0), binding(9)]] var s_albedo_map: sampler;
-[[group(0), binding(10)]] var t_arm_map: texture_2d<f32>;
-[[group(0), binding(11)]] var s_arm_map: sampler;
-[[group(0), binding(12)]] var t_normal_map: texture_2d<f32>;
-[[group(0), binding(13)]] var s_normal_map: sampler;
-[[group(0), binding(14)]] var t_ssao: texture_2d<f32>;
-[[group(0), binding(15)]] var s_ssao: sampler;
+[[group(0), binding(0)]] var<uniform> camera: Camera;
+[[group(1), binding(0)]] var<uniform> light: Light;
+[[group(2), binding(0)]] var t_world_space_fragment_location: texture_2d<f32>;
+[[group(2), binding(1)]] var s_world_space_fragment_location: sampler;
+[[group(2), binding(2)]] var t_world_space_normal: texture_2d<f32>;
+[[group(2), binding(3)]] var s_world_space_normal: sampler;
+[[group(2), binding(4)]] var t_albedo_map: texture_2d<f32>;
+[[group(2), binding(5)]] var s_albedo_map: sampler;
+[[group(2), binding(6)]] var t_arm_map: texture_2d<f32>;
+[[group(2), binding(7)]] var s_arm_map: sampler;
+[[group(2), binding(8)]] var t_normal_map: texture_2d<f32>;
+[[group(2), binding(9)]] var s_normal_map: sampler;
+[[group(2), binding(10)]] var t_ssao: texture_2d<f32>;
+[[group(2), binding(11)]] var s_ssao: sampler;
 
 // Attributes
 struct VertexInput {
@@ -86,12 +93,16 @@ fn geometry_smith(n: vec3<f32>, v: vec3<f32>, l: vec3<f32>, roughness: f32) -> f
 [[stage(fragment)]]
 fn main(in: VertexOutput) -> FragmentOutput {
 	// Texture lookup
+	let fragment_location = textureSample(t_world_space_fragment_location, s_world_space_fragment_location, in.tex_coords).xyz;
+	let normal = textureSample(t_world_space_normal, s_world_space_normal, in.tex_coords).xyz;
 	let albedo_map = textureSample(t_albedo_map, s_albedo_map, in.tex_coords);
 	let arm_map = textureSample(t_arm_map, s_arm_map, in.tex_coords);
 	let normal_map = textureSample(t_normal_map, s_normal_map, in.tex_coords).xyz;
 	let ssao = textureSample(t_ssao, s_ssao, in.tex_coords).r;
 
 	// PBR input data
+	let eye_location = camera.v_matrix[3].xyz;
+	let light_location = light.location;
 	let albedo = pow(albedo_map.rgb, vec3<f32>(2.2));
 	let alpha = albedo_map.a;
 	// let normal_map_strength = 1.;
@@ -101,17 +112,6 @@ fn main(in: VertexOutput) -> FragmentOutput {
 	let roughness = arm_map.y;
 	let metallic = arm_map.z;
 	let light_color = vec3<f32>(25.);
-
-	// Locations
-	// let world_space_fragment_location = in.world_space_fragment_location;
-	// let world_space_eye_location = camera.v_matrix[3].xyz;
-	// let world_space_light_location = light.location;
-	// let world_space_normal = in.world_space_normal;
-
-	let fragment_location = textureSample(t_world_space_fragment_location, s_world_space_fragment_location, in.tex_coords).xyz;
-	let normal = textureSample(t_world_space_normal, s_world_space_normal, in.tex_coords).xyz;
-	let eye_location = textureSample(t_world_space_eye_location, s_world_space_eye_location, in.tex_coords).xyz;
-	let light_location = textureSample(t_world_space_light_location, s_world_space_light_location, in.tex_coords).xyz;
 
 	// Lights
 	let lights_count = 1u;

@@ -33,7 +33,7 @@ impl SceneCamera {
 		let yaw: Rad<f32> = cgmath::Deg(0.0).into();
 		camera_uniform.v_matrix = Self::calculate_v_matrix(location, pitch, yaw).into();
 
-		let projection = Projection::new(context.config.width, context.config.height, cgmath::Deg(45.0), 0.1, 100.0);
+		let projection = Projection::new(context.surface_configuration.width, context.surface_configuration.height, cgmath::Deg(45.0), 0.1, 100.0);
 		camera_uniform.p_matrix = projection.p_matrix().into();
 
 		let camera_buffer = context.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

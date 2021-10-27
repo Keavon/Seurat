@@ -4,7 +4,7 @@ pub struct Context {
 	pub surface: wgpu::Surface,
 	pub device: wgpu::Device,
 	pub queue: wgpu::Queue,
-	pub config: wgpu::SurfaceConfiguration,
+	pub surface_configuration: wgpu::SurfaceConfiguration,
 }
 
 impl Context {
@@ -54,6 +54,11 @@ impl Context {
 		// Configure the surface with the properties defined above
 		surface.configure(&device, &config);
 
-		Self { surface, device, queue, config }
+		Self {
+			surface,
+			device,
+			queue,
+			surface_configuration: config,
+		}
 	}
 }

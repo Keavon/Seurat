@@ -8,13 +8,13 @@
 
 // Uniforms
 [[group(0), binding(0)]] var<uniform> camera: Camera;
-[[group(0), binding(1)]] var<uniform> samples: Samples;
-[[group(0), binding(2)]] var t_noise: texture_2d<f32>;
-[[group(0), binding(3)]] var s_noise: sampler;
-[[group(0), binding(4)]] var t_view_space_fragment_location: texture_2d<f32>;
-[[group(0), binding(5)]] var s_view_space_fragment_location: sampler;
-[[group(0), binding(6)]] var t_view_space_normal: texture_2d<f32>;
-[[group(0), binding(7)]] var s_view_space_normal: sampler;
+[[group(1), binding(0)]] var<uniform> samples: Samples;
+[[group(1), binding(1)]] var t_noise: texture_2d<f32>;
+[[group(1), binding(2)]] var s_noise: sampler;
+[[group(1), binding(3)]] var t_world_space_fragment_location: texture_2d<f32>;
+[[group(1), binding(4)]] var s_world_space_fragment_location: sampler;
+[[group(1), binding(5)]] var t_world_space_normal: texture_2d<f32>;
+[[group(1), binding(6)]] var s_world_space_normal: sampler;
 
 // Attributes
 struct VertexInput {
@@ -43,11 +43,11 @@ fn main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
 	let RADIUS = 0.5;
 	let BIAS = 0.01;
 
-	let noise_scale = vec2<f32>(textureDimensions(t_view_space_fragment_location)) / vec2<f32>(textureDimensions(t_noise));
+	let noise_scale = vec2<f32>(textureDimensions(t_world_space_fragment_location)) / vec2<f32>(textureDimensions(t_noise));
 
 	let noise = textureSample(t_noise, s_noise, in.tex_coords * noise_scale).xyz;
-	let view_space_fragment_location = textureSample(t_view_space_fragment_location, s_view_space_fragment_location, in.tex_coords).xyz;
-	let view_space_normal = normalize(textureSample(t_view_space_normal, s_view_space_normal, in.tex_coords).xyz);
+	let view_space_fragment_location = (camera.v_matrix * vec4<f32>(textureSample(t_world_space_fragment_location, s_world_space_fragment_location, in.tex_coords).xyz, 1.)).xyz;
+	let view_space_normal = normalize((camera.v_matrix * vec4<f32>(textureSample(t_world_space_normal, s_world_space_normal, in.tex_coords).xyz, 0.)).xyz);
 
 	let tangent = normalize(noise - view_space_normal * dot(noise, view_space_normal));
 	let bitangent = cross(view_space_normal, tangent);
@@ -63,10 +63,10 @@ fn main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
 		var offset = vec4<f32>(sample_position, 1.);
 		offset = camera.p_matrix * offset; // From view to clip-space
 		offset = offset / offset.w; // Perspective divide
-		offset.y = -offset.y;
+		offset.y = -offset.y; // Flip vertically because NDC is Y-top and texture lookup is Y-bottom
 		offset = offset * 0.5 + 0.5; // Transform from NDC to range 0.0 - 1.0 for texture lookup
 
-		let sample_depth = textureSample(t_view_space_fragment_location, s_view_space_fragment_location, offset.xy).z;
+		let sample_depth = (camera.v_matrix * vec4<f32>(textureSample(t_world_space_fragment_location, s_world_space_fragment_location, offset.xy).xyz, 1.)).z;
 		let range_check = smoothStep(0.0, 1.0, RADIUS / abs(view_space_fragment_location.z - sample_depth));
 		if (sample_depth >= sample_position.z + BIAS) {
 			occlusion = occlusion + range_check;
@@ -75,5 +75,4 @@ fn main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
 	occlusion = 1. - (occlusion / f32(KERNEL_SIZE));
 
 	return vec4<f32>(occlusion, occlusion, occlusion, 1.);
-	// return vec4<f32>(view_space_fragment_location.xyz, 1.);
 }
