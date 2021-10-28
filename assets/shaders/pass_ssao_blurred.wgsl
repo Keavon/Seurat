@@ -13,7 +13,7 @@ struct VertexInput {
 // Varyings
 struct VertexOutput {
 	[[builtin(position)]] position: vec4<f32>;
-	[[location(0)]] tex_coords: vec2<f32>;
+	[[location(0)]] uv: vec2<f32>;
 };
 
 // Vertex shader
@@ -31,7 +31,7 @@ fn main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
 	for (var x = -2; x < 2; x = x + 1) {
 		for (var y = -2; y < 2; y = y + 1) {
 			let offset = vec2<f32>(f32(x), f32(y)) * texel_size;
-			result = result + textureSample(t_ao, s_ao, in.tex_coords).r;
+			result = result + textureSample(t_ao, s_ao, in.uv).r;
 		}
 	}
 	result = result / (4.0 * 4.0);

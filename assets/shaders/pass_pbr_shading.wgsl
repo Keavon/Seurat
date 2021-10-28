@@ -20,10 +20,8 @@ let PI: f32 = 3.14159265359;
 [[group(2), binding(5)]] var s_albedo_map: sampler;
 [[group(2), binding(6)]] var t_arm_map: texture_2d<f32>;
 [[group(2), binding(7)]] var s_arm_map: sampler;
-[[group(2), binding(8)]] var t_normal_map: texture_2d<f32>;
-[[group(2), binding(9)]] var s_normal_map: sampler;
-[[group(2), binding(10)]] var t_ssao: texture_2d<f32>;
-[[group(2), binding(11)]] var s_ssao: sampler;
+[[group(2), binding(8)]] var t_ssao: texture_2d<f32>;
+[[group(2), binding(9)]] var s_ssao: sampler;
 
 // Attributes
 struct VertexInput {
@@ -36,7 +34,7 @@ struct VertexInput {
 // Varyings
 struct VertexOutput {
 	[[builtin(position)]] position: vec4<f32>;
-	[[location(0)]] tex_coords: vec2<f32>;
+	[[location(0)]] uv: vec2<f32>;
 };
 
 // Frames
@@ -93,25 +91,22 @@ fn geometry_smith(n: vec3<f32>, v: vec3<f32>, l: vec3<f32>, roughness: f32) -> f
 [[stage(fragment)]]
 fn main(in: VertexOutput) -> FragmentOutput {
 	// Texture lookup
-	let fragment_location = textureSample(t_world_space_fragment_location, s_world_space_fragment_location, in.tex_coords).xyz;
-	let normal = textureSample(t_world_space_normal, s_world_space_normal, in.tex_coords).xyz;
-	let albedo_map = textureSample(t_albedo_map, s_albedo_map, in.tex_coords);
-	let arm_map = textureSample(t_arm_map, s_arm_map, in.tex_coords);
-	let normal_map = textureSample(t_normal_map, s_normal_map, in.tex_coords).xyz;
-	let ssao = textureSample(t_ssao, s_ssao, in.tex_coords).r;
+	let fragment_location = textureSample(t_world_space_fragment_location, s_world_space_fragment_location, in.uv).xyz;
+	let normal = textureSample(t_world_space_normal, s_world_space_normal, in.uv).xyz;
+	let albedo_map = textureSample(t_albedo_map, s_albedo_map, in.uv);
+	let arm_map = textureSample(t_arm_map, s_arm_map, in.uv);
+	let ssao = textureSample(t_ssao, s_ssao, in.uv).r;
 
 	// PBR input data
 	let eye_location = camera.v_matrix[3].xyz;
 	let light_location = light.location;
 	let albedo = pow(albedo_map.rgb, vec3<f32>(2.2));
 	let alpha = albedo_map.a;
-	// let normal_map_strength = 1.;
-	// let normal = mix(vec3<f32>(0., 0., 1.), normal_map * 2. - 1., normal_map_strength);
-	let ambient = vec3<f32>(0.1);
+	let ambient = vec3<f32>(0.0001);
 	let ao = arm_map.x;
 	let roughness = arm_map.y;
 	let metallic = arm_map.z;
-	let light_color = vec3<f32>(25.);
+	let light_color = vec3<f32>(5.);
 
 	// Lights
 	let lights_count = 1u;

@@ -27,7 +27,7 @@ struct VertexInput {
 // Varyings
 struct VertexOutput {
 	[[builtin(position)]] position: vec4<f32>;
-	[[location(0)]] tex_coords: vec2<f32>;
+	[[location(0)]] uv: vec2<f32>;
 };
 
 // Vertex shader
@@ -45,9 +45,9 @@ fn main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
 
 	let noise_scale = vec2<f32>(textureDimensions(t_world_space_fragment_location)) / vec2<f32>(textureDimensions(t_noise));
 
-	let noise = textureSample(t_noise, s_noise, in.tex_coords * noise_scale).xyz;
-	let view_space_fragment_location = (camera.v_matrix * vec4<f32>(textureSample(t_world_space_fragment_location, s_world_space_fragment_location, in.tex_coords).xyz, 1.)).xyz;
-	let view_space_normal = normalize((camera.v_matrix * vec4<f32>(textureSample(t_world_space_normal, s_world_space_normal, in.tex_coords).xyz, 0.)).xyz);
+	let noise = textureSample(t_noise, s_noise, in.uv * noise_scale).xyz;
+	let view_space_fragment_location = (camera.v_matrix * vec4<f32>(textureSample(t_world_space_fragment_location, s_world_space_fragment_location, in.uv).xyz, 1.)).xyz;
+	let view_space_normal = normalize((camera.v_matrix * vec4<f32>(textureSample(t_world_space_normal, s_world_space_normal, in.uv).xyz, 0.)).xyz);
 
 	let tangent = normalize(noise - view_space_normal * dot(noise, view_space_normal));
 	let bitangent = cross(view_space_normal, tangent);

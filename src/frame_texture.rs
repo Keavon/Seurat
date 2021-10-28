@@ -58,7 +58,6 @@ pub struct FrameTextures {
 	pub world_space_normal: FrameTexture,
 	pub albedo_map: FrameTexture,
 	pub arm_map: FrameTexture,
-	pub normal_map: FrameTexture,
 	pub ssao_kernel_map: FrameTexture,
 	pub ssao_blurred_map: FrameTexture,
 }
@@ -70,21 +69,7 @@ impl FrameTextures {
 		self.world_space_normal.recreate(device, config);
 		self.albedo_map.recreate(device, config);
 		self.arm_map.recreate(device, config);
-		self.normal_map.recreate(device, config);
 		self.ssao_kernel_map.recreate(device, config);
 		self.ssao_blurred_map.recreate(device, config);
 	}
-}
-
-#[derive(Copy, Clone)]
-pub enum FrameTextureTypes {
-	Surface,
-	ZBuffer,
-	WorldSpaceFragmentLocation,
-	WorldSpaceNormal,
-	AlbedoMap,
-	ArmMap,
-	NormalMap,
-	SSAOKernelMap,
-	SSAOBlurredMap,
 }

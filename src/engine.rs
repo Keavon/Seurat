@@ -2,7 +2,7 @@ use crate::camera::SceneCamera;
 use crate::camera_controller::CameraController;
 use crate::component::Component;
 use crate::context::Context;
-use crate::frame_texture::{FrameTexture, FrameTextureTypes, FrameTextures};
+use crate::frame_texture::{FrameTexture, FrameTextures};
 use crate::instance::Instance;
 use crate::light::SceneLighting;
 use crate::material::{Material, MaterialDataBinding};
@@ -43,27 +43,33 @@ impl Engine {
 			"Z-buffer frame texture",
 			Some(wgpu::CompareFunction::LessEqual),
 		);
+
 		let world_space_fragment_location = FrameTexture::new(
 			&context.device,
 			&context.surface_configuration,
 			wgpu::TextureFormat::Rgba16Float,
-			"WorldSpaceFragmentLocation frame texture",
+			"World Space Fragment Location frame texture",
 			None,
 		);
 		let world_space_normal = FrameTexture::new(
 			&context.device,
 			&context.surface_configuration,
 			wgpu::TextureFormat::Rgba16Float,
-			"WorldSpaceNormal frame texture",
+			"World Space Normal frame texture",
 			None,
 		);
 
-		let albedo_map = FrameTexture::new(&context.device, &context.surface_configuration, wgpu::TextureFormat::Bgra8UnormSrgb, "AlbedoMap frame texture", None);
-		let arm_map = FrameTexture::new(&context.device, &context.surface_configuration, wgpu::TextureFormat::Bgra8Unorm, "ArmMap frame texture", None);
-		let normal_map = FrameTexture::new(&context.device, &context.surface_configuration, wgpu::TextureFormat::Bgra8Unorm, "NormalMap frame texture", None);
+		let albedo_map = FrameTexture::new(&context.device, &context.surface_configuration, wgpu::TextureFormat::Bgra8UnormSrgb, "Albedo Map frame texture", None);
+		let arm_map = FrameTexture::new(&context.device, &context.surface_configuration, wgpu::TextureFormat::Bgra8Unorm, "ARM Map frame texture", None);
 
-		let ssao_kernel_map = FrameTexture::new(&context.device, &context.surface_configuration, wgpu::TextureFormat::Rgba16Float, "SSAOKernelMap frame texture", None);
-		let ssao_blurred_map = FrameTexture::new(&context.device, &context.surface_configuration, wgpu::TextureFormat::Rgba16Float, "SSAOBlurredMap frame texture", None);
+		let ssao_kernel_map = FrameTexture::new(&context.device, &context.surface_configuration, wgpu::TextureFormat::Rgba16Float, "SSAO Kernel Map frame texture", None);
+		let ssao_blurred_map = FrameTexture::new(
+			&context.device,
+			&context.surface_configuration,
+			wgpu::TextureFormat::Rgba16Float,
+			"SSAO Blurred Map frame texture",
+			None,
+		);
 
 		let frame_textures = FrameTextures {
 			z_buffer,
@@ -71,7 +77,6 @@ impl Engine {
 			world_space_normal,
 			albedo_map,
 			arm_map,
-			normal_map,
 			ssao_kernel_map,
 			ssao_blurred_map,
 		};
@@ -109,7 +114,7 @@ impl Engine {
 		// Shaders
 		let temporary_camera = SceneCamera::new(&self.context);
 
-		let deferred_world_space_shader = {
+		let scene_deferred_shader = {
 			let albedo_map = ShaderBinding::Texture(ShaderBindingTexture::default()); // Albedo map
 			let arm_map = ShaderBinding::Texture(ShaderBindingTexture::default()); // AO/Roughness/Metalness map
 			let normal_map = ShaderBinding::Texture(ShaderBindingTexture::default()); // Normal map
@@ -117,40 +122,13 @@ impl Engine {
 			Shader::new(
 				&self.context,
 				assets_path,
-				"deferred_world_space.wgsl",
+				"scene_deferred.wgsl",
 				vec![albedo_map, arm_map, normal_map],
 				vec![
 					wgpu::TextureFormat::Rgba16Float,
 					wgpu::TextureFormat::Rgba16Float,
-					// wgpu::TextureFormat::Bgra8UnormSrgb,
-					// wgpu::TextureFormat::Bgra8Unorm,
-					// wgpu::TextureFormat::Bgra8Unorm,
-				],
-				Some(wgpu::TextureFormat::Depth32Float),
-				true,
-				Some(&temporary_camera),
-				Some(&self.scene_lighting),
-			)
-		};
-		self.scene.resources.shaders.insert(String::from("deferred_world_space.wgsl"), deferred_world_space_shader);
-
-		let deferred_pbr_data_shader = {
-			let albedo_map = ShaderBinding::Texture(ShaderBindingTexture::default()); // Albedo map
-			let arm_map = ShaderBinding::Texture(ShaderBindingTexture::default()); // AO/Roughness/Metalness map
-			let normal_map = ShaderBinding::Texture(ShaderBindingTexture::default()); // Normal map
-
-			Shader::new(
-				&self.context,
-				assets_path,
-				"deferred_pbr_data.wgsl",
-				vec![albedo_map, arm_map, normal_map],
-				vec![
-					// wgpu::TextureFormat::Rgba16Float,
-					// wgpu::TextureFormat::Rgba16Float,
-					// wgpu::TextureFormat::Rgba16Float,
 					wgpu::TextureFormat::Bgra8UnormSrgb,
 					wgpu::TextureFormat::Bgra8Unorm,
-					wgpu::TextureFormat::Bgra8Unorm,
 				],
 				Some(wgpu::TextureFormat::Depth32Float),
 				true,
@@ -158,9 +136,9 @@ impl Engine {
 				Some(&self.scene_lighting),
 			)
 		};
-		self.scene.resources.shaders.insert(String::from("deferred_pbr_data.wgsl"), deferred_pbr_data_shader);
+		self.scene.resources.shaders.insert(String::from("scene_deferred.wgsl"), scene_deferred_shader);
 
-		let ssao_kernel_blit_shader = {
+		let pass_ssao_kernel_shader = {
 			let samples_array = ShaderBinding::Buffer(ShaderBindingBuffer::default());
 			let ssao_noise_texture = ShaderBinding::Texture(ShaderBindingTexture::default());
 			let world_space_fragment_location = ShaderBinding::Texture(ShaderBindingTexture::default());
@@ -169,7 +147,7 @@ impl Engine {
 			Shader::new(
 				&self.context,
 				assets_path,
-				"ssao_kernel_blit.wgsl",
+				"pass_ssao_kernel.wgsl",
 				vec![samples_array, ssao_noise_texture, world_space_fragment_location, world_space_normal],
 				vec![wgpu::TextureFormat::Rgba16Float],
 				None,
@@ -178,15 +156,15 @@ impl Engine {
 				None,
 			)
 		};
-		self.scene.resources.shaders.insert(String::from("ssao_kernel_blit.wgsl"), ssao_kernel_blit_shader);
+		self.scene.resources.shaders.insert(String::from("pass_ssao_kernel.wgsl"), pass_ssao_kernel_shader);
 
-		let ssao_blurred_blit_shader = {
+		let pass_ssao_blurred_shader = {
 			let ssao_kernel = ShaderBinding::Texture(ShaderBindingTexture::default());
 
 			Shader::new(
 				&self.context,
 				assets_path,
-				"ssao_blurred_blit.wgsl",
+				"pass_ssao_blurred.wgsl",
 				vec![ssao_kernel],
 				vec![wgpu::TextureFormat::Rgba16Float],
 				None,
@@ -195,21 +173,20 @@ impl Engine {
 				None,
 			)
 		};
-		self.scene.resources.shaders.insert(String::from("ssao_blurred_blit.wgsl"), ssao_blurred_blit_shader);
+		self.scene.resources.shaders.insert(String::from("pass_ssao_blurred.wgsl"), pass_ssao_blurred_shader);
 
-		let pbr_blit_world_space_shader = {
+		let pass_pbr_shading_shader = {
 			let world_space_fragment_location = ShaderBinding::Texture(ShaderBindingTexture::default());
 			let world_space_normal = ShaderBinding::Texture(ShaderBindingTexture::default());
 			let albedo_map = ShaderBinding::Texture(ShaderBindingTexture::default());
 			let arm_map = ShaderBinding::Texture(ShaderBindingTexture::default());
-			let normal_map = ShaderBinding::Texture(ShaderBindingTexture::default());
 			let ssao_blurred_map = ShaderBinding::Texture(ShaderBindingTexture::default());
 
 			Shader::new(
 				&self.context,
 				assets_path,
-				"pbr_blit_world_space.wgsl",
-				vec![world_space_fragment_location, world_space_normal, albedo_map, arm_map, normal_map, ssao_blurred_map],
+				"pass_pbr_shading.wgsl",
+				vec![world_space_fragment_location, world_space_normal, albedo_map, arm_map, ssao_blurred_map],
 				vec![self.context.surface_configuration.format],
 				None,
 				false,
@@ -217,7 +194,7 @@ impl Engine {
 				Some(&self.scene_lighting),
 			)
 		};
-		self.scene.resources.shaders.insert(String::from("pbr_blit_world_space.wgsl"), pbr_blit_world_space_shader);
+		self.scene.resources.shaders.insert(String::from("pass_pbr_shading.wgsl"), pass_pbr_shading_shader);
 
 		// Textures
 		self.scene.resources.textures.insert(
@@ -234,36 +211,36 @@ impl Engine {
 		);
 
 		self.scene.resources.textures.insert(
-			String::from("cube_albedo.jpg"),
+			String::from("cobblestone_albedo.jpg"),
 			Texture::load(
 				&self.context.device,
 				&self.context.queue,
 				assets_path,
-				"cube_albedo.jpg",
+				"cobblestone_albedo.jpg",
 				wgpu::TextureFormat::Rgba8UnormSrgb,
 				wgpu::AddressMode::ClampToEdge,
 			)
 			.unwrap(),
 		);
 		self.scene.resources.textures.insert(
-			String::from("cube_arm.jpg"),
+			String::from("cobblestone_arm.jpg"),
 			Texture::load(
 				&self.context.device,
 				&self.context.queue,
 				assets_path,
-				"cube_arm.jpg",
+				"cobblestone_arm.jpg",
 				wgpu::TextureFormat::Rgba8Unorm,
 				wgpu::AddressMode::ClampToEdge,
 			)
 			.unwrap(),
 		);
 		self.scene.resources.textures.insert(
-			String::from("cube_normal.jpg"),
+			String::from("cobblestone_normal.jpg"),
 			Texture::load(
 				&self.context.device,
 				&self.context.queue,
 				assets_path,
-				"cube_normal.jpg",
+				"cobblestone_normal.jpg",
 				wgpu::TextureFormat::Rgba8Unorm,
 				wgpu::AddressMode::ClampToEdge,
 			)
@@ -325,28 +302,14 @@ impl Engine {
 	fn load_materials(&mut self) {
 		// Materials
 		self.scene.resources.materials.insert(
-			String::from("deferred_world_space_cubes.material"),
+			String::from("scene_deferred_cubes.material"),
 			Material::new(
-				"deferred_world_space_cubes.material",
-				"deferred_world_space.wgsl",
+				"scene_deferred_cubes.material",
+				"scene_deferred.wgsl",
 				vec![
-					MaterialDataBinding::TextureName("cube_albedo.jpg"),
-					MaterialDataBinding::TextureName("cube_arm.jpg"),
-					MaterialDataBinding::TextureName("cube_normal.jpg"),
-				],
-				&self.scene.resources,
-				&self.context.device,
-			),
-		);
-		self.scene.resources.materials.insert(
-			String::from("deferred_pbr_data_cubes.material"),
-			Material::new(
-				"deferred_pbr_data_cubes.material",
-				"deferred_pbr_data.wgsl",
-				vec![
-					MaterialDataBinding::TextureName("cube_albedo.jpg"),
-					MaterialDataBinding::TextureName("cube_arm.jpg"),
-					MaterialDataBinding::TextureName("cube_normal.jpg"),
+					MaterialDataBinding::TextureName("cobblestone_albedo.jpg"),
+					MaterialDataBinding::TextureName("cobblestone_arm.jpg"),
+					MaterialDataBinding::TextureName("cobblestone_normal.jpg"),
 				],
 				&self.scene.resources,
 				&self.context.device,
@@ -354,24 +317,10 @@ impl Engine {
 		);
 
 		self.scene.resources.materials.insert(
-			String::from("deferred_world_space_white.material"),
+			String::from("scene_deferred_white.material"),
 			Material::new(
-				"deferred_world_space_white.material",
-				"deferred_world_space.wgsl",
-				vec![
-					MaterialDataBinding::TextureName("white_albedo.png"),
-					MaterialDataBinding::TextureName("white_arm.png"),
-					MaterialDataBinding::TextureName("white_normal.png"),
-				],
-				&self.scene.resources,
-				&self.context.device,
-			),
-		);
-		self.scene.resources.materials.insert(
-			String::from("deferred_pbr_data_white.material"),
-			Material::new(
-				"deferred_pbr_data_white.material",
-				"deferred_pbr_data.wgsl",
+				"scene_deferred_white.material",
+				"scene_deferred.wgsl",
 				vec![
 					MaterialDataBinding::TextureName("white_albedo.png"),
 					MaterialDataBinding::TextureName("white_arm.png"),
@@ -388,10 +337,10 @@ impl Engine {
 			usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
 		});
 		self.scene.resources.materials.insert(
-			String::from("ssao_kernel_blit.material"),
+			String::from("pass_ssao_kernel.material"),
 			Material::new(
-				"ssao_kernel_blit.material",
-				"ssao_kernel_blit.wgsl",
+				"pass_ssao_kernel.material",
+				"pass_ssao_kernel.wgsl",
 				vec![
 					MaterialDataBinding::Buffer(wgpu::BufferBinding {
 						buffer: &ssao_samples_buffer,
@@ -408,10 +357,10 @@ impl Engine {
 		);
 
 		self.scene.resources.materials.insert(
-			String::from("ssao_blurred_blit.material"),
+			String::from("pass_ssao_blurred.material"),
 			Material::new(
-				"ssao_blurred_blit.material",
-				"ssao_blurred_blit.wgsl",
+				"pass_ssao_blurred.material",
+				"pass_ssao_blurred.wgsl",
 				vec![MaterialDataBinding::Texture(&self.frame_textures.ssao_kernel_map.texture)],
 				&self.scene.resources,
 				&self.context.device,
@@ -419,16 +368,15 @@ impl Engine {
 		);
 
 		self.scene.resources.materials.insert(
-			String::from("pbr_blit_world_space.material"),
+			String::from("pass_pbr_shading.material"),
 			Material::new(
-				"pbr_blit_world_space.material",
-				"pbr_blit_world_space.wgsl",
+				"pass_pbr_shading.material",
+				"pass_pbr_shading.wgsl",
 				vec![
 					MaterialDataBinding::Texture(&self.frame_textures.world_space_fragment_location.texture),
 					MaterialDataBinding::Texture(&self.frame_textures.world_space_normal.texture),
 					MaterialDataBinding::Texture(&self.frame_textures.albedo_map.texture),
 					MaterialDataBinding::Texture(&self.frame_textures.arm_map.texture),
-					MaterialDataBinding::Texture(&self.frame_textures.normal_map.texture),
 					MaterialDataBinding::Texture(&self.frame_textures.ssao_blurred_map.texture),
 				],
 				&self.scene.resources,
@@ -448,7 +396,7 @@ impl Engine {
 		// White cube representing the light
 		let lamp = self.scene.root.new_child("Lamp Model");
 
-		let mut lamp_model = Model::new(&self.scene.resources, ("cube.obj", "Cube_Finished_Cube.001"), "deferred_world_space_white.material");
+		let mut lamp_model = Model::new(&self.scene.resources, ("cube.obj", "Cube_Finished_Cube.001"), "scene_deferred_white.material");
 		lamp_model.instances.instance_list[0].location.y = 4.;
 		lamp_model.instances.update_buffer(&self.context.device);
 		lamp.add_component(Component::Model(lamp_model));
@@ -459,7 +407,7 @@ impl Engine {
 		// Array of cubes
 		let cubes = self.scene.root.new_child("Cubes");
 
-		let mut cube_model = Model::new(&self.scene.resources, ("cube.obj", "Cube_Finished_Cube.001"), "deferred_world_space_cubes.material");
+		let mut cube_model = Model::new(&self.scene.resources, ("cube.obj", "Cube_Finished_Cube.001"), "scene_deferred_cubes.material");
 
 		const NUM_INSTANCES_PER_ROW: u32 = 10;
 		const SPACE_BETWEEN: f32 = 1.0;
@@ -490,7 +438,7 @@ impl Engine {
 		// Sponza
 		let sponza = self.scene.root.new_child("Sponza");
 
-		let mut sponza_model = Model::new(&self.scene.resources, ("sponza.obj", "sponza"), "deferred_world_space_white.material");
+		let mut sponza_model = Model::new(&self.scene.resources, ("sponza.obj", "sponza"), "scene_deferred_white.material");
 		sponza_model.instances.update_buffer(&self.context.device);
 
 		sponza.add_component(Component::Model(sponza_model));
@@ -608,60 +556,41 @@ impl Engine {
 		let surface_texture = self.context.surface.get_current_texture()?;
 		let surface_texture_view = surface_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-		let frame_texture_from_id = |frame_texture_type: FrameTextureTypes| match frame_texture_type {
-			FrameTextureTypes::Surface => &surface_texture_view,
-			FrameTextureTypes::ZBuffer => &self.frame_textures.z_buffer.texture.view,
-			FrameTextureTypes::WorldSpaceFragmentLocation => &self.frame_textures.world_space_fragment_location.texture.view,
-			FrameTextureTypes::WorldSpaceNormal => &self.frame_textures.world_space_normal.texture.view,
-			FrameTextureTypes::AlbedoMap => &self.frame_textures.albedo_map.texture.view,
-			FrameTextureTypes::ArmMap => &self.frame_textures.arm_map.texture.view,
-			FrameTextureTypes::NormalMap => &self.frame_textures.normal_map.texture.view,
-			FrameTextureTypes::SSAOKernelMap => &self.frame_textures.ssao_kernel_map.texture.view,
-			FrameTextureTypes::SSAOBlurredMap => &self.frame_textures.ssao_blurred_map.texture.view,
-		};
-
 		let mut encoder = self.context.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("Render Encoder") });
 
 		let passes = vec![
 			Pass {
-				label: String::from("Forward: Deferred World Space"),
-				depth_attachment: Some(frame_texture_from_id(FrameTextureTypes::ZBuffer)),
-				color_attachment_types: vec![FrameTextureTypes::WorldSpaceFragmentLocation, FrameTextureTypes::WorldSpaceNormal],
+				label: String::from("Scene: Deferred"),
+				depth_attachment: Some(&self.frame_textures.z_buffer.texture.view),
+				color_attachment_types: vec![
+					&self.frame_textures.world_space_fragment_location.texture.view,
+					&self.frame_textures.world_space_normal.texture.view,
+					&self.frame_textures.albedo_map.texture.view,
+					&self.frame_textures.arm_map.texture.view,
+				],
 				blit_material: None,
 				clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
-				repeat: 0,
 			},
 			Pass {
-				label: String::from("Forward: Deferred PBR Data"),
-				depth_attachment: Some(frame_texture_from_id(FrameTextureTypes::ZBuffer)),
-				color_attachment_types: vec![FrameTextureTypes::AlbedoMap, FrameTextureTypes::ArmMap, FrameTextureTypes::NormalMap],
-				blit_material: None,
-				clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
-				repeat: 1,
-			},
-			Pass {
-				label: String::from("SSAO: Kernel Blit"),
+				label: String::from("Pass: SSAO Kernel"),
 				depth_attachment: None,
-				color_attachment_types: vec![FrameTextureTypes::SSAOKernelMap],
-				blit_material: Some(String::from("ssao_kernel_blit.material")),
+				color_attachment_types: vec![&self.frame_textures.ssao_kernel_map.texture.view],
+				blit_material: Some(String::from("pass_ssao_kernel.material")),
 				clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
-				repeat: 0,
 			},
 			Pass {
-				label: String::from("SSAO: Blurred Blit"),
+				label: String::from("Pass: SSAO Blurred"),
 				depth_attachment: None,
-				color_attachment_types: vec![FrameTextureTypes::SSAOBlurredMap],
-				blit_material: Some(String::from("ssao_blurred_blit.material")),
+				color_attachment_types: vec![&self.frame_textures.ssao_blurred_map.texture.view],
+				blit_material: Some(String::from("pass_ssao_blurred.material")),
 				clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
-				repeat: 0,
 			},
 			Pass {
-				label: String::from("Deferred: Blit to Surface"),
+				label: String::from("Pass: PBR Shading"),
 				depth_attachment: None,
-				color_attachment_types: vec![FrameTextureTypes::Surface],
-				blit_material: Some(String::from("pbr_blit_world_space.material")),
+				color_attachment_types: vec![&surface_texture_view],
+				blit_material: Some(String::from("pass_pbr_shading.material")),
 				clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
-				repeat: 0,
 			},
 		];
 
@@ -672,7 +601,7 @@ impl Engine {
 				.color_attachment_types
 				.into_iter()
 				.map(|frame_texture_type| wgpu::RenderPassColorAttachment {
-					view: frame_texture_from_id(frame_texture_type),
+					view: frame_texture_type,
 					resolve_target: None,
 					ops: wgpu::Operations {
 						load: wgpu::LoadOp::Clear(pass.clear_color),
@@ -697,7 +626,7 @@ impl Engine {
 			});
 
 			match pass.blit_material {
-				None => self.draw_scene(render_pass, pass.repeat),
+				None => self.draw_scene(render_pass),
 				Some(material_name) => self.draw_quad(render_pass, material_name.as_str()),
 			}
 
@@ -710,22 +639,12 @@ impl Engine {
 		Ok(())
 	}
 
-	fn draw_scene<'a>(&'a self, mut render_pass: wgpu::RenderPass<'a>, repeat: usize) {
+	fn draw_scene<'a>(&'a self, mut render_pass: wgpu::RenderPass<'a>) {
 		for entity in &self.scene.root {
 			for component in &entity.components {
 				if let Component::Model(model) = component {
 					let mesh = &self.scene.resources.meshes[model.mesh];
-					let mut material = &self.scene.resources.materials[model.material];
-					match (repeat, material.name.as_str()) {
-						(1, "deferred_world_space_cubes.material") => {
-							material = self.scene.resources.materials.get("deferred_pbr_data_cubes.material").unwrap();
-						}
-						(1, "deferred_world_space_white.material") => {
-							material = self.scene.resources.materials.get("deferred_pbr_data_white.material").unwrap();
-						}
-						_ if repeat > 0 => continue,
-						_ => {}
-					}
+					let material = &self.scene.resources.materials[model.material];
 					let shader = &self.scene.resources.shaders[material.shader_id];
 
 					let instances_buffer = model.instances.instances_buffer.as_ref();
