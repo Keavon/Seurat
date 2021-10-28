@@ -37,11 +37,6 @@ struct VertexOutput {
 	[[location(0)]] uv: vec2<f32>;
 };
 
-// Frames
-struct FragmentOutput {
-	[[location(0)]] color: vec4<f32>;
-};
-
 // Vertex shader
 [[stage(vertex)]]
 fn main(model: VertexInput) -> VertexOutput {
@@ -89,7 +84,7 @@ fn geometry_smith(n: vec3<f32>, v: vec3<f32>, l: vec3<f32>, roughness: f32) -> f
 
 // Fragment shader
 [[stage(fragment)]]
-fn main(in: VertexOutput) -> FragmentOutput {
+fn main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
 	// Texture lookup
 	let fragment_location = textureSample(t_world_space_fragment_location, s_world_space_fragment_location, in.uv).xyz;
 	let normal = textureSample(t_world_space_normal, s_world_space_normal, in.uv).xyz;
@@ -167,11 +162,5 @@ fn main(in: VertexOutput) -> FragmentOutput {
 	let ambient_component = albedo * ambient * pow(ambient_removal, 3.);
 	color = color + ambient_component;
 
-	// Tone mapping
-	color = color / (color + vec3<f32>(1.));
-
-	// Gamma correction (linear to gamma)
-	color = pow(color, vec3<f32>(1. / 2.2));
-
-	return FragmentOutput(vec4<f32>(color, 1.));
+	return vec4<f32>(color, 1.);
 }

@@ -71,6 +71,8 @@ impl Engine {
 			None,
 		);
 
+		let pbr_shaded_map = FrameTexture::new(&context.device, &context.surface_configuration, wgpu::TextureFormat::Rgba16Float, "PBR Shaded Map frame texture", None);
+
 		let frame_textures = FrameTextures {
 			z_buffer,
 			world_space_fragment_location,
@@ -79,6 +81,7 @@ impl Engine {
 			arm_map,
 			ssao_kernel_map,
 			ssao_blurred_map,
+			pbr_shaded_map,
 		};
 
 		// Prepare the initial time value used to calculate the delta time since last frame
@@ -187,7 +190,7 @@ impl Engine {
 				assets_path,
 				"pass_pbr_shading.wgsl",
 				vec![world_space_fragment_location, world_space_normal, albedo_map, arm_map, ssao_blurred_map],
-				vec![self.context.surface_configuration.format],
+				vec![wgpu::TextureFormat::Rgba16Float],
 				None,
 				false,
 				Some(&temporary_camera),
@@ -195,6 +198,23 @@ impl Engine {
 			)
 		};
 		self.scene.resources.shaders.insert(String::from("pass_pbr_shading.wgsl"), pass_pbr_shading_shader);
+
+		let pass_hdr_exposure_shader = {
+			let pbr_shaded = ShaderBinding::Texture(ShaderBindingTexture::default());
+
+			Shader::new(
+				&self.context,
+				assets_path,
+				"pass_hdr_exposure.wgsl",
+				vec![pbr_shaded],
+				vec![self.context.surface_configuration.format],
+				None,
+				false,
+				None,
+				None,
+			)
+		};
+		self.scene.resources.shaders.insert(String::from("pass_hdr_exposure.wgsl"), pass_hdr_exposure_shader);
 
 		// Textures
 		self.scene.resources.textures.insert(
@@ -379,6 +399,17 @@ impl Engine {
 					MaterialDataBinding::Texture(&self.frame_textures.arm_map.texture),
 					MaterialDataBinding::Texture(&self.frame_textures.ssao_blurred_map.texture),
 				],
+				&self.scene.resources,
+				&self.context.device,
+			),
+		);
+
+		self.scene.resources.materials.insert(
+			String::from("pass_hdr_exposure.material"),
+			Material::new(
+				"pass_hdr_exposure.material",
+				"pass_hdr_exposure.wgsl",
+				vec![MaterialDataBinding::Texture(&self.frame_textures.pbr_shaded_map.texture)],
 				&self.scene.resources,
 				&self.context.device,
 			),
@@ -588,8 +619,15 @@ impl Engine {
 			Pass {
 				label: String::from("Pass: PBR Shading"),
 				depth_attachment: None,
-				color_attachment_types: vec![&surface_texture_view],
+				color_attachment_types: vec![&self.frame_textures.pbr_shaded_map.texture.view],
 				blit_material: Some(String::from("pass_pbr_shading.material")),
+				clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
+			},
+			Pass {
+				label: String::from("Pass: HDR Exposure"),
+				depth_attachment: None,
+				color_attachment_types: vec![&surface_texture_view],
+				blit_material: Some(String::from("pass_hdr_exposure.material")),
 				clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
 			},
 		];

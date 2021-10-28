@@ -60,6 +60,7 @@ pub struct FrameTextures {
 	pub arm_map: FrameTexture,
 	pub ssao_kernel_map: FrameTexture,
 	pub ssao_blurred_map: FrameTexture,
+	pub pbr_shaded_map: FrameTexture,
 }
 
 impl FrameTextures {
@@ -71,5 +72,6 @@ impl FrameTextures {
 		self.arm_map.recreate(device, config);
 		self.ssao_kernel_map.recreate(device, config);
 		self.ssao_blurred_map.recreate(device, config);
+		self.pbr_shaded_map.recreate(device, config);
 	}
 }
