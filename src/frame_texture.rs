@@ -53,25 +53,11 @@ impl FrameTexture {
 }
 
 pub struct FrameTextures {
-	pub z_buffer: FrameTexture,
-	pub world_space_fragment_location: FrameTexture,
-	pub world_space_normal: FrameTexture,
-	pub albedo_map: FrameTexture,
-	pub arm_map: FrameTexture,
-	pub ssao_kernel_map: FrameTexture,
-	pub ssao_blurred_map: FrameTexture,
-	pub pbr_shaded_map: FrameTexture,
+	// pub pbr_shaded_map: FrameTexture,
 }
 
 impl FrameTextures {
 	pub fn recreate_all(&mut self, device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) {
-		self.z_buffer.recreate(device, config);
-		self.world_space_fragment_location.recreate(device, config);
-		self.world_space_normal.recreate(device, config);
-		self.albedo_map.recreate(device, config);
-		self.arm_map.recreate(device, config);
-		self.ssao_kernel_map.recreate(device, config);
-		self.ssao_blurred_map.recreate(device, config);
-		self.pbr_shaded_map.recreate(device, config);
+		// self.pbr_shaded_map.recreate(device, config);
 	}
 }
