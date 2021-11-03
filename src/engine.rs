@@ -8,9 +8,9 @@ use crate::light::SceneLighting;
 use crate::material::{Material, MaterialDataBinding};
 use crate::mesh::Mesh;
 use crate::model::Model;
-use crate::pass::Pass;
+use crate::pass::{ComputePass, Pass, RenderPass};
 use crate::scene::Scene;
-use crate::shader::{Shader, ShaderBinding, ShaderBindingBuffer, ShaderBindingTexture};
+use crate::shader::{PipelineOptions, RenderPipelineOptions, Shader, ShaderBinding, ShaderBindingBuffer, ShaderBindingTexture};
 use crate::texture::Texture;
 
 use cgmath::{InnerSpace, Rotation3, Zero};
@@ -127,16 +127,18 @@ impl Engine {
 				assets_path,
 				"scene_deferred.wgsl",
 				vec![albedo_map, arm_map, normal_map],
-				vec![
-					wgpu::TextureFormat::Rgba16Float,
-					wgpu::TextureFormat::Rgba16Float,
-					wgpu::TextureFormat::Bgra8UnormSrgb,
-					wgpu::TextureFormat::Bgra8Unorm,
-				],
-				Some(wgpu::TextureFormat::Depth32Float),
-				true,
-				Some(&temporary_camera),
-				Some(&self.scene_lighting),
+				PipelineOptions::RenderPipeline(RenderPipelineOptions {
+					out_color_formats: vec![
+						wgpu::TextureFormat::Rgba16Float,
+						wgpu::TextureFormat::Rgba16Float,
+						wgpu::TextureFormat::Bgra8UnormSrgb,
+						wgpu::TextureFormat::Bgra8Unorm,
+					],
+					depth_format: Some(wgpu::TextureFormat::Depth32Float),
+					use_instances: true,
+					scene_camera: Some(&temporary_camera),
+					scene_lighting: Some(&self.scene_lighting),
+				}),
 			)
 		};
 		self.scene.resources.shaders.insert(String::from("scene_deferred.wgsl"), scene_deferred_shader);
@@ -152,11 +154,13 @@ impl Engine {
 				assets_path,
 				"pass_ssao_kernel.wgsl",
 				vec![samples_array, ssao_noise_texture, world_space_fragment_location, world_space_normal],
-				vec![wgpu::TextureFormat::Rgba16Float],
-				None,
-				false,
-				Some(&temporary_camera),
-				None,
+				PipelineOptions::RenderPipeline(RenderPipelineOptions {
+					out_color_formats: vec![wgpu::TextureFormat::Rgba16Float],
+					depth_format: None,
+					use_instances: false,
+					scene_camera: Some(&temporary_camera),
+					scene_lighting: None,
+				}),
 			)
 		};
 		self.scene.resources.shaders.insert(String::from("pass_ssao_kernel.wgsl"), pass_ssao_kernel_shader);
@@ -169,11 +173,13 @@ impl Engine {
 				assets_path,
 				"pass_ssao_blurred.wgsl",
 				vec![ssao_kernel],
-				vec![wgpu::TextureFormat::Rgba16Float],
-				None,
-				false,
-				None,
-				None,
+				PipelineOptions::RenderPipeline(RenderPipelineOptions {
+					out_color_formats: vec![wgpu::TextureFormat::Rgba16Float],
+					depth_format: None,
+					use_instances: false,
+					scene_camera: None,
+					scene_lighting: None,
+				}),
 			)
 		};
 		self.scene.resources.shaders.insert(String::from("pass_ssao_blurred.wgsl"), pass_ssao_blurred_shader);
@@ -190,14 +196,32 @@ impl Engine {
 				assets_path,
 				"pass_pbr_shading.wgsl",
 				vec![world_space_fragment_location, world_space_normal, albedo_map, arm_map, ssao_blurred_map],
-				vec![wgpu::TextureFormat::Rgba16Float],
-				None,
-				false,
-				Some(&temporary_camera),
-				Some(&self.scene_lighting),
+				PipelineOptions::RenderPipeline(RenderPipelineOptions {
+					out_color_formats: vec![wgpu::TextureFormat::Rgba16Float],
+					depth_format: None,
+					use_instances: false,
+					scene_camera: Some(&temporary_camera),
+					scene_lighting: Some(&self.scene_lighting),
+				}),
 			)
 		};
 		self.scene.resources.shaders.insert(String::from("pass_pbr_shading.wgsl"), pass_pbr_shading_shader);
+
+		// let compute_hdr_measuring_shader = {
+		// 	let pbr_shaded = ShaderBinding::Texture(ShaderBindingTexture {
+		// 		visible_in_stages: wgpu::ShaderStages::COMPUTE,
+		// 		..ShaderBindingTexture::default()
+		// 	});
+
+		// 	Shader::new(
+		// 		&self.context,
+		// 		assets_path,
+		// 		"compute_hdr_measuring.wgsl",
+		// 		vec![pbr_shaded],
+		// 		PipelineOptions::ComputePipeline(ComputePipelineOptions {}),
+		// 	)
+		// };
+		// self.scene.resources.shaders.insert(String::from("pass_pbr_shading.wgsl"), compute_hdr_measuring_shader);
 
 		let pass_hdr_exposure_shader = {
 			let pbr_shaded = ShaderBinding::Texture(ShaderBindingTexture::default());
@@ -207,11 +231,13 @@ impl Engine {
 				assets_path,
 				"pass_hdr_exposure.wgsl",
 				vec![pbr_shaded],
-				vec![self.context.surface_configuration.format],
-				None,
-				false,
-				None,
-				None,
+				PipelineOptions::RenderPipeline(RenderPipelineOptions {
+					out_color_formats: vec![self.context.surface_configuration.format],
+					depth_format: None,
+					use_instances: false,
+					scene_camera: None,
+					scene_lighting: None,
+				}),
 			)
 		};
 		self.scene.resources.shaders.insert(String::from("pass_hdr_exposure.wgsl"), pass_hdr_exposure_shader);
@@ -590,7 +616,7 @@ impl Engine {
 		let mut encoder = self.context.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("Render Encoder") });
 
 		let passes = vec![
-			Pass {
+			Pass::RenderPass(RenderPass {
 				label: String::from("Scene: Deferred"),
 				depth_attachment: Some(&self.frame_textures.z_buffer.texture.view),
 				color_attachment_types: vec![
@@ -601,74 +627,79 @@ impl Engine {
 				],
 				blit_material: None,
 				clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
-			},
-			Pass {
+			}),
+			Pass::RenderPass(RenderPass {
 				label: String::from("Pass: SSAO Kernel"),
 				depth_attachment: None,
 				color_attachment_types: vec![&self.frame_textures.ssao_kernel_map.texture.view],
 				blit_material: Some(String::from("pass_ssao_kernel.material")),
 				clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
-			},
-			Pass {
+			}),
+			Pass::RenderPass(RenderPass {
 				label: String::from("Pass: SSAO Blurred"),
 				depth_attachment: None,
 				color_attachment_types: vec![&self.frame_textures.ssao_blurred_map.texture.view],
 				blit_material: Some(String::from("pass_ssao_blurred.material")),
 				clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
-			},
-			Pass {
+			}),
+			Pass::RenderPass(RenderPass {
 				label: String::from("Pass: PBR Shading"),
 				depth_attachment: None,
 				color_attachment_types: vec![&self.frame_textures.pbr_shaded_map.texture.view],
 				blit_material: Some(String::from("pass_pbr_shading.material")),
 				clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
-			},
-			Pass {
+			}),
+			// Pass::ComputePass(ComputePass {
+			// 	label: String::from("Pass: HDR Measuring"),
+			// 	material: String::from("pass_pbr_shading.material"),
+			// }),
+			Pass::RenderPass(RenderPass {
 				label: String::from("Pass: HDR Exposure"),
 				depth_attachment: None,
 				color_attachment_types: vec![&surface_texture_view],
 				blit_material: Some(String::from("pass_hdr_exposure.material")),
 				clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
-			},
+			}),
 		];
 
 		for pass in passes {
-			// println!("Beginning pass: {}", pass.label);
+			match pass {
+				Pass::RenderPass(pass) => {
+					let color_attachments = pass
+						.color_attachment_types
+						.into_iter()
+						.map(|frame_texture_type| wgpu::RenderPassColorAttachment {
+							view: frame_texture_type,
+							resolve_target: None,
+							ops: wgpu::Operations {
+								load: wgpu::LoadOp::Clear(pass.clear_color),
+								store: true,
+							},
+						})
+						.collect::<Vec<wgpu::RenderPassColorAttachment>>();
 
-			let color_attachments = pass
-				.color_attachment_types
-				.into_iter()
-				.map(|frame_texture_type| wgpu::RenderPassColorAttachment {
-					view: frame_texture_type,
-					resolve_target: None,
-					ops: wgpu::Operations {
-						load: wgpu::LoadOp::Clear(pass.clear_color),
-						store: true,
-					},
-				})
-				.collect::<Vec<wgpu::RenderPassColorAttachment>>();
+					let depth_stencil_attachment = pass.depth_attachment.map(|view| wgpu::RenderPassDepthStencilAttachment {
+						view,
+						depth_ops: Some(wgpu::Operations {
+							load: wgpu::LoadOp::Clear(1.0),
+							store: true,
+						}),
+						stencil_ops: None,
+					});
 
-			let depth_stencil_attachment = pass.depth_attachment.map(|view| wgpu::RenderPassDepthStencilAttachment {
-				view,
-				depth_ops: Some(wgpu::Operations {
-					load: wgpu::LoadOp::Clear(1.0),
-					store: true,
-				}),
-				stencil_ops: None,
-			});
+					let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+						label: Some(pass.label.as_str()),
+						color_attachments: color_attachments.as_slice(),
+						depth_stencil_attachment,
+					});
 
-			let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-				label: Some(pass.label.as_str()),
-				color_attachments: color_attachments.as_slice(),
-				depth_stencil_attachment,
-			});
-
-			match pass.blit_material {
-				None => self.draw_scene(render_pass),
-				Some(material_name) => self.draw_quad(render_pass, material_name.as_str()),
+					match pass.blit_material {
+						None => self.draw_scene(render_pass),
+						Some(material_name) => self.draw_quad(render_pass, material_name.as_str()),
+					}
+				}
+				Pass::ComputePass(pass) => {}
 			}
-
-			// println!("End of pass: {}", pass.label);
 		}
 
 		self.context.queue.submit(std::iter::once(encoder.finish()));
@@ -684,11 +715,15 @@ impl Engine {
 					let mesh = &self.scene.resources.meshes[model.mesh];
 					let material = &self.scene.resources.materials[model.material];
 					let shader = &self.scene.resources.shaders[material.shader_id];
+					let pipeline = match &shader.pipeline {
+						crate::shader::PipelineType::RenderPipeline(render_pipeline) => render_pipeline,
+						crate::shader::PipelineType::ComputePipeline(_) => continue,
+					};
 
 					let instances_buffer = model.instances.instances_buffer.as_ref();
 					let instances_range = 0..model.instances.instance_list.len() as u32;
 
-					render_pass.set_pipeline(&shader.render_pipeline);
+					render_pass.set_pipeline(pipeline);
 
 					render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
 					render_pass.set_vertex_buffer(1, instances_buffer.unwrap().slice(..));
@@ -717,8 +752,12 @@ impl Engine {
 		let mesh = &self.scene.resources.meshes.get(&(String::from("BLIT"), String::from("QUAD"))).unwrap();
 		let material = &self.scene.resources.materials.get(material_name).unwrap();
 		let shader = &self.scene.resources.shaders[material.shader_id];
+		let pipeline = match &shader.pipeline {
+			crate::shader::PipelineType::RenderPipeline(render_pipeline) => render_pipeline,
+			crate::shader::PipelineType::ComputePipeline(_) => return,
+		};
 
-		render_pass.set_pipeline(&shader.render_pipeline);
+		render_pass.set_pipeline(pipeline);
 
 		render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
 
