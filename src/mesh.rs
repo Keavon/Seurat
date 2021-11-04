@@ -10,6 +10,9 @@ pub struct Mesh {
 	pub vertex_buffer: wgpu::Buffer,
 	pub index_buffer: wgpu::Buffer,
 	pub index_count: u32,
+	pub map_albedo: Option<String>,
+	pub map_arm: Option<String>,
+	pub map_normal: Option<String>,
 }
 
 impl Mesh {
@@ -24,7 +27,8 @@ impl Mesh {
 				..Default::default()
 			},
 		)?;
-		// let obj_materials = obj_materials?;
+
+		let obj_materials = obj_materials.unwrap_or_default();
 
 		let meshes = obj_models
 			.par_iter()
@@ -103,11 +107,26 @@ impl Mesh {
 					usage: wgpu::BufferUsages::INDEX,
 				});
 
+				let (map_albedo, map_arm, map_normal) = if let Some(index) = m.mesh.material_id {
+					let material = &obj_materials[index];
+
+					(
+						Some(material.diffuse_texture.clone()).filter(String::is_empty),
+						Some(material.shininess_texture.clone()).filter(String::is_empty),
+						Some(material.normal_texture.clone()).filter(String::is_empty),
+					)
+				} else {
+					(None, None, None)
+				};
+
 				Ok(Mesh {
 					name: m.name.clone(),
 					vertex_buffer,
 					index_buffer,
 					index_count: m.mesh.indices.len() as u32,
+					map_albedo,
+					map_arm,
+					map_normal,
 				})
 			})
 			.collect::<Result<Vec<_>>>()?;
@@ -142,6 +161,9 @@ impl Mesh {
 			vertex_buffer,
 			index_buffer,
 			index_count: 6,
+			map_albedo: None,
+			map_arm: None,
+			map_normal: None,
 		}
 	}
 }

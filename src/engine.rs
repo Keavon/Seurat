@@ -294,36 +294,36 @@ impl Engine {
 		);
 
 		self.scene.resources.textures.insert(
-			String::from("white_albedo.png"),
+			String::from("sponza_pbr_14650633544276105767.jpg"),
 			Texture::load(
 				&self.context.device,
 				&self.context.queue,
 				assets_path,
-				"white_albedo.png",
+				"sponza_pbr_14650633544276105767.jpg",
 				wgpu::TextureFormat::Rgba8UnormSrgb,
 				wgpu::AddressMode::ClampToEdge,
 			)
 			.unwrap(),
 		);
 		self.scene.resources.textures.insert(
-			String::from("white_arm.png"),
+			String::from("sponza_pbr_4871783166746854860.jpg"),
 			Texture::load(
 				&self.context.device,
 				&self.context.queue,
 				assets_path,
-				"white_arm.png",
+				"sponza_pbr_4871783166746854860.jpg",
 				wgpu::TextureFormat::Rgba8Unorm,
 				wgpu::AddressMode::ClampToEdge,
 			)
 			.unwrap(),
 		);
 		self.scene.resources.textures.insert(
-			String::from("white_normal.png"),
+			String::from("sponza_pbr_2051777328469649772.jpg"),
 			Texture::load(
 				&self.context.device,
 				&self.context.queue,
 				assets_path,
-				"white_normal.png",
+				"sponza_pbr_2051777328469649772.jpg",
 				wgpu::TextureFormat::Rgba8Unorm,
 				wgpu::AddressMode::ClampToEdge,
 			)
@@ -339,9 +339,9 @@ impl Engine {
 			self.scene.resources.meshes.insert((String::from("cube.obj"), mesh.name.clone()), mesh);
 		}
 
-		let meshes = Mesh::load(&self.context.device, &self.context.queue, assets_path, "sponza.obj");
+		let meshes = Mesh::load(&self.context.device, &self.context.queue, assets_path, "sponza_pbr.obj");
 		for mesh in meshes.unwrap_or_default() {
-			self.scene.resources.meshes.insert((String::from("sponza.obj"), mesh.name.clone()), mesh);
+			self.scene.resources.meshes.insert((String::from("sponza_pbr.obj"), mesh.name.clone()), mesh);
 		}
 	}
 
@@ -363,14 +363,14 @@ impl Engine {
 		);
 
 		self.scene.resources.materials.insert(
-			String::from("scene_deferred_white.material"),
+			String::from("scene_deferred_Arches.material"),
 			Material::new(
-				"scene_deferred_white.material",
+				"scene_deferred_Arches.material",
 				"scene_deferred.wgsl",
 				vec![
-					MaterialDataBinding::TextureName("white_albedo.png"),
-					MaterialDataBinding::TextureName("white_arm.png"),
-					MaterialDataBinding::TextureName("white_normal.png"),
+					MaterialDataBinding::TextureName("sponza_pbr_14650633544276105767.jpg"),
+					MaterialDataBinding::TextureName("sponza_pbr_4871783166746854860.jpg"),
+					MaterialDataBinding::TextureName("sponza_pbr_2051777328469649772.jpg"),
 				],
 				&self.scene.resources,
 				&self.context.device,
@@ -453,7 +453,7 @@ impl Engine {
 		// White cube representing the light
 		let lamp = self.scene.root.new_child("Lamp Model");
 
-		let mut lamp_model = Model::new(&self.scene.resources, ("cube.obj", "Cube_Finished_Cube.001"), "scene_deferred_white.material");
+		let mut lamp_model = Model::new(&self.scene.resources, ("cube.obj", "Cube_Finished_Cube.001"), "scene_deferred_Arches.material");
 		lamp_model.instances.instance_list[0].location.y = 4.;
 		lamp_model.instances.update_buffer(&self.context.device);
 		lamp.add_component(Component::Model(lamp_model));
@@ -495,7 +495,7 @@ impl Engine {
 		// Sponza
 		let sponza = self.scene.root.new_child("Sponza");
 
-		let mut sponza_model = Model::new(&self.scene.resources, ("sponza.obj", "sponza"), "scene_deferred_white.material");
+		let mut sponza_model = Model::new(&self.scene.resources, ("sponza_pbr.obj", "Arches"), "scene_deferred_Arches.material");
 		sponza_model.instances.update_buffer(&self.context.device);
 
 		sponza.add_component(Component::Model(sponza_model));
