@@ -108,7 +108,7 @@ fn main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
 	var light_colors = array<vec3<f32>, 1>(light_color);
 
 	// Per-fragment unit vectors
-	let v = normalize(eye_location - fragment_location);
+	let v = normalize(fragment_location - eye_location);
 	let n = normalize(normal);
 
 	var color = vec3<f32>(0.0);

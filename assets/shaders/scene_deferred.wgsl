@@ -76,6 +76,8 @@ fn main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
 // Fragment shader
 [[stage(fragment)]]
 fn main(in: VertexOutput) -> FragmentOutput {
+	let NORMAL_MAP_STRENGTH = 0.5;
+
 	let uv = vec2<f32>(in.uv.x, 1. - in.uv.y);
 
 	// Normal
@@ -91,7 +93,7 @@ fn main(in: VertexOutput) -> FragmentOutput {
 	// Normal map
 	let from_tangent_space = mat3x3<f32>(world_space_tangent, world_space_bitangent, world_space_normal);
 	var tangent_space_normal = textureSample(t_normal, s_normal, uv).xyz * 2. - 1.;
-	world_space_normal = from_tangent_space * normalize(tangent_space_normal);
+	world_space_normal = from_tangent_space * normalize(mix(vec3<f32>(0., 1., 0.), tangent_space_normal, NORMAL_MAP_STRENGTH));
 
 	return FragmentOutput(
 		vec4<f32>(in.world_space_fragment_location, 1.),

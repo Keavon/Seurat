@@ -45,55 +45,59 @@ impl Mesh {
 					})
 					.collect::<Vec<_>>();
 
-				let indices = &m.mesh.indices;
-				let mut triangles_included = (0..vertices.len()).collect::<Vec<_>>();
+				// let mut triangles_included = (0..vertices.len()).collect::<Vec<_>>();
 
-				// Calculate tangents and bitangets. We're going to
-				// use the triangles, so we need to loop through the
-				// indices in chunks of 3
-				for c in indices.chunks(3) {
-					let v0 = vertices[c[0] as usize];
-					let v1 = vertices[c[1] as usize];
-					let v2 = vertices[c[2] as usize];
+				// Calculate tangents. We're going to use the triangles, so we need to loop through the indices in chunks of 3
+				for a in m.mesh.indices.chunks(3) {
+					let i1 = a[0] as usize;
+					let i2 = a[1] as usize;
+					let i3 = a[2] as usize;
 
-					let pos0: cgmath::Vector3<_> = v0.position.into();
-					let pos1: cgmath::Vector3<_> = v1.position.into();
-					let pos2: cgmath::Vector3<_> = v2.position.into();
+					let v1 = vertices[i1].position;
+					let v2 = vertices[i2].position;
+					let v3 = vertices[i3].position;
 
-					let uv0: cgmath::Vector2<_> = v0.uv.into();
-					let uv1: cgmath::Vector2<_> = v1.uv.into();
-					let uv2: cgmath::Vector2<_> = v2.uv.into();
+					let w1 = vertices[i1].uv;
+					let w2 = vertices[i2].uv;
+					let w3 = vertices[i3].uv;
 
-					// Calculate the edges of the triangle
-					let delta_pos1 = pos1 - pos0;
-					let delta_pos2 = pos2 - pos0;
+					let x1 = v2[0] - v1[0];
+					let x2 = v3[0] - v1[0];
+					let y1 = v2[1] - v1[1];
+					let y2 = v3[1] - v1[1];
+					let z1 = v2[2] - v1[2];
+					let z2 = v3[2] - v1[2];
 
-					// This will give us a direction to calculate the tangent
-					let delta_uv1 = uv1 - uv0;
-					let delta_uv2 = uv2 - uv0;
+					let s1 = w2[0] - w1[0];
+					let s2 = w3[0] - w1[0];
+					let t1 = w2[1] - w1[1];
+					let t2 = w3[1] - w1[1];
 
-					// Solving the following system of equations will give us the tangent
-					//     delta_pos1 = delta_uv1.x * T + delta_u.y * B
-					//     delta_pos2 = delta_uv2.x * T + delta_uv2.y * B
-					let r = 1.0 / (delta_uv1.x * delta_uv2.y - delta_uv1.y * delta_uv2.x);
-					let tangent = (delta_pos1 * delta_uv2.y - delta_pos2 * delta_uv1.y) * r;
+					let r = 1. / (s1 * t2 - s2 * t1);
+					let sdir = [(t2 * x1 - t1 * x2) * r, (t2 * y1 - t1 * y2) * r, (t2 * z1 - t1 * z2) * r];
 
-					// We'll use the same tangent for each vertex in the triangle
-					vertices[c[0] as usize].tangent = (tangent + cgmath::Vector3::from(vertices[c[0] as usize].tangent)).into();
-					vertices[c[1] as usize].tangent = (tangent + cgmath::Vector3::from(vertices[c[1] as usize].tangent)).into();
-					vertices[c[2] as usize].tangent = (tangent + cgmath::Vector3::from(vertices[c[2] as usize].tangent)).into();
+					vertices[i1].tangent[0] += sdir[0];
+					vertices[i1].tangent[1] += sdir[1];
+					vertices[i1].tangent[2] += sdir[2];
 
-					// Used to average the tangents
-					triangles_included[c[0] as usize] += 1;
-					triangles_included[c[1] as usize] += 1;
-					triangles_included[c[2] as usize] += 1;
+					vertices[i2].tangent[0] += sdir[0];
+					vertices[i2].tangent[1] += sdir[1];
+					vertices[i2].tangent[2] += sdir[2];
+
+					vertices[i3].tangent[0] += sdir[0];
+					vertices[i3].tangent[1] += sdir[1];
+					vertices[i3].tangent[2] += sdir[2];
 				}
 
-				// Average the tangents
-				for (i, n) in triangles_included.into_iter().enumerate() {
-					let denom = 1.0 / n as f32;
-					let mut v = &mut vertices[i];
-					v.tangent = (cgmath::Vector3::from(v.tangent) * denom).normalize().into();
+				for a in &mut vertices {
+					let n = cgmath::Vector3::new(a.normal[0], a.normal[1], a.normal[2]);
+					let t = cgmath::Vector3::new(a.tangent[0], a.tangent[1], a.tangent[2]);
+
+					// Gram-Schmidt orthogonalize
+					let orthogonalized = (t - n * cgmath::dot(n, t)).normalize();
+					a.tangent[0] = orthogonalized.x;
+					a.tangent[1] = orthogonalized.y;
+					a.tangent[2] = orthogonalized.z;
 				}
 
 				let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
