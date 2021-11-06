@@ -10,8 +10,8 @@
 // Uniforms
 [[group(0), binding(0)]] var<uniform> camera: Camera;
 [[group(1), binding(0)]] var<uniform> light: Light;
-[[group(2), binding(0)]] var t_diffuse: texture_2d<f32>;
-[[group(2), binding(1)]] var s_diffuse: sampler;
+[[group(2), binding(0)]] var t_albedo: texture_2d<f32>;
+[[group(2), binding(1)]] var s_albedo: sampler;
 
 [[group(2), binding(2)]] var t_voxel_lightmap: texture_3d<f32>;
 [[group(2), binding(3)]] var s_voxel_lightmap: sampler;
@@ -69,7 +69,7 @@ fn main(in: VertexOutput) -> FragmentOutput {
 	let uv = vec2<f32>(in.uv.x, 1. - in.uv.y);
 
 	let pos = in.world_space_fragment_location;
-	let color = textureSample(t_diffuse, s_diffuse, uv).rgba;
+	let color = textureSample(t_albedo, s_albedo, uv).rgba;
 
 	return FragmentOutput(
 		vec4<f32>(in.world_space_fragment_location, 1.),

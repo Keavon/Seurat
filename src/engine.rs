@@ -150,7 +150,7 @@ impl Engine {
 		// Spinning cube representing the light
 		let lamp = self.scene.root.new_child("Lamp Model");
 
-		let mut lamp_model = Model::new(("cube.obj", "BeveledCube"), "scene_deferred_BeveledCube.material");
+		let mut lamp_model = Model::new(("cube.obj", "BeveledCube"));
 		lamp_model.instances.instance_list[0].location.y = 4.;
 		lamp_model.instances.update_buffer(&self.context.device);
 		lamp.add_component(Component::Model(lamp_model));
@@ -161,7 +161,7 @@ impl Engine {
 		// Array of cubes
 		let cubes = self.scene.root.new_child("Cubes");
 
-		let mut cube_model = Model::new(("cube.obj", "BeveledCube"), "scene_deferred_BeveledCube.material");
+		let mut cube_model = Model::new(("cube.obj", "BeveledCube"));
 
 		const NUM_INSTANCES_PER_ROW: u32 = 10;
 		const SPACE_BETWEEN: f32 = 1.0;
@@ -194,7 +194,7 @@ impl Engine {
 		for mesh_name in model_files.get("sponza_pbr.obj").unwrap() {
 			let submesh = sponza.new_child(mesh_name);
 
-			let mut submesh_model = Model::new(("sponza_pbr.obj", mesh_name), format!("scene_deferred_{}.material", mesh_name).as_str());
+			let mut submesh_model = Model::new(("sponza_pbr.obj", mesh_name));
 			submesh_model.instances.update_buffer(&self.context.device);
 
 			submesh.add_component(Component::Model(submesh_model));
@@ -236,6 +236,11 @@ impl Engine {
 						"scene_deferred.wgsl",
 						vec![mesh.map_albedo.clone(), mesh.map_arm.clone(), mesh.map_normal.clone()].into_iter().flatten().collect::<Vec<_>>(),
 					));
+					materials_to_load.push((
+						format!("calc_voxel_lightmap_{}.material", mesh.name.as_str()),
+						"calc_voxel_lightmap.wgsl",
+						vec![mesh.map_albedo.clone(), Some(String::from("VOXEL_LIGHTMAP"))].into_iter().flatten().collect::<Vec<_>>(),
+					));
 				}
 			}
 		}
@@ -244,16 +249,16 @@ impl Engine {
 		let scene_camera = self.scene.root.find_descendant("Main Camera").unwrap().get_cameras()[0];
 
 		let calc_voxel_lightmap_shader = {
-			let diffuse_map = ShaderBinding::Texture(ShaderBindingTexture::default());
+			let albedo_map = ShaderBinding::Texture(ShaderBindingTexture::default());
 
 			Shader::new(
 				&self.context,
 				assets_path,
 				"calc_voxel_lightmap.wgsl",
-				vec![diffuse_map],
+				vec![albedo_map],
 				PipelineOptions::RenderPipeline(RenderPipelineOptions {
-					out_color_formats: vec![],
-					depth_format: Some(wgpu::TextureFormat::Depth32Float),
+					out_color_formats: vec![wgpu::TextureFormat::Rgba16Float,],
+					depth_format: None,
 					use_instances: true,
 					scene_camera: Some(scene_camera),
 					scene_lighting: Some(&self.scene_lighting),
@@ -415,13 +420,6 @@ impl Engine {
 		});
 		let material_definitions = [
 			(
-				"pass_calc_voxel_lightmap.material",
-				"calc_voxel_lightmap.wgsl",
-				vec![
-					MaterialDataBinding::Texture(&self.voxel_light_map.texture),
-				],
-			),
-			(
 				"pass_ssao_kernel.material",
 				"pass_ssao_kernel.wgsl",
 				vec![
@@ -463,7 +461,11 @@ impl Engine {
 				(
 					to_load.0.as_str(),
 					to_load.1,
-					to_load.2.iter().map(|texture_path| MaterialDataBinding::TextureName(texture_path.as_str())).collect::<Vec<_>>(),
+					to_load.2.iter().map(|texture_path| 
+						match texture_path.as_str() {
+							"VOXEL_LIGHTMAP" => MaterialDataBinding::Texture(&self.voxel_light_map.texture),
+							_ => MaterialDataBinding::TextureName(texture_path.as_str())
+						}).collect::<Vec<_>>(),
 				)
 			})
 			.chain(material_definitions);
@@ -592,9 +594,9 @@ impl Engine {
 				label: String::from("Pass: Calc Voxel Lightmap"),
 				depth_attachment: None,
 				color_attachment_types: vec![
-					&self.voxel_light_map.texture.view,
+					&self.frame_textures.world_space_fragment_location.texture.view, // Ignored, but wgpu seems to need at least one fragment output
 				],
-				blit_material: Some(String::from("pass_calc_voxel_lightmap.material")),
+				blit_material: None,
 				clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
 			}),
 			Pass::RenderPass(RenderPass {
@@ -675,7 +677,7 @@ impl Engine {
 					});
 
 					match pass.blit_material {
-						None => self.draw_scene(render_pass),
+						None => self.draw_scene(render_pass, &pass.label),
 						Some(material_name) => self.draw_quad(render_pass, material_name.as_str()),
 					}
 				}
@@ -689,19 +691,25 @@ impl Engine {
 		Ok(())
 	}
 
-	fn draw_scene<'a>(&'a self, mut render_pass: wgpu::RenderPass<'a>) {
+	fn draw_scene<'a>(&'a self, mut render_pass: wgpu::RenderPass<'a>, pass_name: &str) {
 		for entity in &self.scene.root {
 			for component in &entity.components {
 				if let Component::Model(model) = component {
 					let mesh = &self.scene.resources.meshes[model
 						.mesh
 						.unwrap_or_else(|| panic!("The mesh '{}:{}' is not loaded but is trying to be drawn", model.mesh_name.0, model.mesh_name.1))];
-					let material = &self.scene.resources.materials[model.material.unwrap_or_else(|| {
+					let maybe_material_index = match pass_name {
+						"Pass: Calc Voxel Lightmap" => model.voxel_lightmap_material,
+						"Scene: Deferred" => model.scene_deferred_material,
+						_ => panic!("Invalid render pass for drawing scene {}", pass_name)
+					};
+					let material_index = maybe_material_index.unwrap_or_else(|| {
 						panic!(
-							"The material '{}' is not loaded but is trying to be drawn with model '{}:{}'",
-							model.material_name, model.mesh_name.0, model.mesh_name.1
+							"The material for pass '{}' is not loaded but is trying to be drawn with model '{}:{}'",
+							pass_name, model.mesh_name.0, model.mesh_name.1
 						)
-					})];
+					});
+					let material = &self.scene.resources.materials[material_index];
 					let shader = &self.scene.resources.shaders[material.shader_id];
 					let pipeline = match &shader.pipeline {
 						crate::shader::PipelineType::RenderPipeline(render_pipeline) => render_pipeline,
