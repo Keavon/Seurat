@@ -10,7 +10,7 @@ use crate::mesh::Mesh;
 use crate::model::Model;
 use crate::pass::{ComputePass, Pass, RenderPass};
 use crate::scene::Scene;
-use crate::shader::{PipelineOptions, RenderPipelineOptions, Shader, ShaderBinding, ShaderBindingBuffer, ShaderBindingTexture};
+use crate::shader::{ComputePipelineOptions, PipelineOptions, RenderPipelineOptions, Shader, ShaderBinding, ShaderBindingBuffer, ShaderBindingTexture};
 use crate::texture::Texture;
 use crate::voxel_texture::VoxelTexture;
 
@@ -24,6 +24,7 @@ use winit::{event_loop::ControlFlow, window::Window};
 pub struct Engine {
 	context: Context,
 	frame_textures: FrameTextures,
+	voxel_light_map: VoxelTexture,
 	frame_time: std::time::Instant,
 	scene: Scene,
 	active_camera: String,
@@ -86,7 +87,7 @@ impl Engine {
 			pbr_shaded_map,
 		};
 
-		let voxel_light_map = VoxelTexture::new(&context.device, (128, 128, 128), wgpu::TextureFormat::Rgba32Uint, "Voxel Light Map (u32)", None);
+		let voxel_light_map = VoxelTexture::new(&context.device, (128, 128, 128), wgpu::TextureFormat::Rgba8Unorm, "Voxel Light Map (u32)", None);
 
 		// Prepare the initial time value used to calculate the delta time since last frame
 		let frame_time = std::time::Instant::now();
@@ -104,6 +105,7 @@ impl Engine {
 		Self {
 			context,
 			frame_textures,
+			voxel_light_map,
 			frame_time,
 			scene,
 			active_camera,
@@ -240,6 +242,25 @@ impl Engine {
 
 		// Shaders
 		let scene_camera = self.scene.root.find_descendant("Main Camera").unwrap().get_cameras()[0];
+
+		let calc_voxel_lightmap_shader = {
+			let diffuse_map = ShaderBinding::Texture(ShaderBindingTexture::default());
+
+			Shader::new(
+				&self.context,
+				assets_path,
+				"calc_voxel_lightmap.wgsl",
+				vec![diffuse_map],
+				PipelineOptions::RenderPipeline(RenderPipelineOptions {
+					out_color_formats: vec![],
+					depth_format: Some(wgpu::TextureFormat::Depth32Float),
+					use_instances: true,
+					scene_camera: Some(scene_camera),
+					scene_lighting: Some(&self.scene_lighting),
+				}),
+			)
+		};
+		self.scene.resources.shaders.insert(calc_voxel_lightmap_shader.name.clone(), calc_voxel_lightmap_shader);
 
 		let scene_deferred_shader = {
 			let albedo_map = ShaderBinding::Texture(ShaderBindingTexture::default()); // Albedo map
@@ -393,6 +414,13 @@ impl Engine {
 			usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
 		});
 		let material_definitions = [
+			(
+				"pass_calc_voxel_lightmap.material",
+				"calc_voxel_lightmap.wgsl",
+				vec![
+					MaterialDataBinding::Texture(&self.voxel_light_map.texture),
+				],
+			),
 			(
 				"pass_ssao_kernel.material",
 				"pass_ssao_kernel.wgsl",
@@ -560,6 +588,15 @@ impl Engine {
 		let mut encoder = self.context.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("Render Encoder") });
 
 		let passes = vec![
+			Pass::RenderPass(RenderPass {
+				label: String::from("Pass: Calc Voxel Lightmap"),
+				depth_attachment: None,
+				color_attachment_types: vec![
+					&self.voxel_light_map.texture.view,
+				],
+				blit_material: Some(String::from("pass_calc_voxel_lightmap.material")),
+				clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
+			}),
 			Pass::RenderPass(RenderPass {
 				label: String::from("Scene: Deferred"),
 				depth_attachment: Some(&self.frame_textures.z_buffer.texture.view),
