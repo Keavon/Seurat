@@ -14,7 +14,7 @@ use crate::shader::{PipelineOptions, RenderPipelineOptions, Shader, ShaderBindin
 use crate::texture::Texture;
 
 use cgmath::{InnerSpace, Rotation3, Zero};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use wgpu::util::DeviceExt;
 use winit::event::{DeviceEvent, ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
@@ -110,52 +110,134 @@ impl Engine {
 	}
 
 	pub fn load(&mut self, assets_path: &Path) {
-		let scene_camera = SceneCamera::new(&self.context);
+		let model_files = ["cube.obj", "sponza_pbr.obj"];
+		let model_meshes = self.preload_model_files(&model_files, assets_path);
 
-		self.load_resources(assets_path, &scene_camera);
-		self.load_scene(scene_camera);
+		self.build_scene(&model_meshes);
+		self.load_resources(&model_meshes, assets_path);
+
+		// Once the scene is populated and resources are loaded, each `Model` needs to associate itself with its mesh resources
+		self.scene.root.load_models_on_descendants(&self.scene.resources);
 	}
 
-	fn load_resources(&mut self, assets_path: &Path, scene_camera: &SceneCamera) {
+	fn preload_model_files(&mut self, model_files: &[&str], assets_path: &Path) -> HashMap<String, Vec<String>> {
+		model_files
+			.iter()
+			.map(|model_file| {
+				let meshes = Mesh::load(&self.context.device, &self.context.queue, assets_path, model_file).unwrap_or_default();
+				let mesh_names = meshes.iter().map(|mesh| mesh.name.clone()).collect::<Vec<_>>();
+
+				for mesh in meshes {
+					self.scene.resources.meshes.insert((String::from(*model_file), mesh.name.clone()), mesh);
+				}
+
+				(String::from(*model_file), mesh_names)
+			})
+			.collect::<HashMap<_, _>>()
+	}
+
+	fn build_scene(&mut self, model_files: &HashMap<String, Vec<String>>) {
+		// Main camera
+		let scene_camera = SceneCamera::new(&self.context);
+		let main_camera = self.scene.root.new_child("Main Camera");
+		main_camera.add_component(Component::Camera(scene_camera));
+
+		// Spinning cube representing the light
+		let lamp = self.scene.root.new_child("Lamp Model");
+
+		let mut lamp_model = Model::new(("cube.obj", "BeveledCube"), "scene_deferred_BeveledCube.material");
+		lamp_model.instances.instance_list[0].location.y = 4.;
+		lamp_model.instances.update_buffer(&self.context.device);
+		lamp.add_component(Component::Model(lamp_model));
+
+		let light_cube_movement = crate::scripts::light_cube_movement::LightCubeMovement;
+		lamp.add_component(Component::Behavior(Box::new(light_cube_movement)));
+
+		// Array of cubes
+		let cubes = self.scene.root.new_child("Cubes");
+
+		let mut cube_model = Model::new(("cube.obj", "BeveledCube"), "scene_deferred_BeveledCube.material");
+
+		const NUM_INSTANCES_PER_ROW: u32 = 10;
+		const SPACE_BETWEEN: f32 = 1.0;
+		cube_model.instances.instance_list = (0..NUM_INSTANCES_PER_ROW)
+			.flat_map(|z| {
+				(0..NUM_INSTANCES_PER_ROW).map(move |x| {
+					let x = SPACE_BETWEEN * (x as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
+					let z = SPACE_BETWEEN * (z as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
+
+					let location = cgmath::Vector3 { x, y: 0.4, z };
+
+					let rotation = if location.is_zero() {
+						cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0))
+					} else {
+						cgmath::Quaternion::from_axis_angle(location.normalize(), cgmath::Deg(45.0))
+					};
+
+					let scale = cgmath::Vector3 { x: 0.25, y: 0.25, z: 0.25 };
+
+					Instance { location, rotation, scale }
+				})
+			})
+			.collect::<Vec<_>>();
+		cube_model.instances.update_buffer(&self.context.device);
+
+		cubes.add_component(Component::Model(cube_model));
+
+		// Sponza
+		let sponza = self.scene.root.new_child("Sponza");
+		for mesh_name in model_files.get("sponza_pbr.obj").unwrap() {
+			let submesh = sponza.new_child(mesh_name);
+
+			let mut submesh_model = Model::new(("sponza_pbr.obj", mesh_name), format!("scene_deferred_{}.material", mesh_name).as_str());
+			submesh_model.instances.update_buffer(&self.context.device);
+
+			submesh.add_component(Component::Model(submesh_model));
+		}
+	}
+
+	fn load_resources(&mut self, model_files: &HashMap<String, Vec<String>>, assets_path: &Path) {
 		let mut textures_to_load = HashSet::<(String, wgpu::TextureFormat, wgpu::AddressMode)>::new();
 		let mut materials_to_load = Vec::new();
-		let mut models_to_spawn = Vec::new();
 
 		// Meshes
 		let blit_quad_mesh = Mesh::new_blit_quad(&self.context.device, &self.context.queue);
 		self.scene.resources.meshes.insert((String::from("BLIT"), String::from("QUAD")), blit_quad_mesh);
 
-		let mesh_files = ["cube.obj", "sponza_pbr.obj"];
-		for mesh_file in mesh_files {
-			let meshes = Mesh::load(&self.context.device, &self.context.queue, assets_path, mesh_file);
-			for mesh in meshes.unwrap_or_default() {
-				// Mark the PBR textures to be loaded
-				if let Some(texture) = &mesh.map_albedo {
-					textures_to_load.insert((texture.clone(), wgpu::TextureFormat::Rgba8UnormSrgb, wgpu::AddressMode::Repeat));
-				}
-				if let Some(texture) = &mesh.map_arm {
-					textures_to_load.insert((texture.clone(), wgpu::TextureFormat::Rgba8Unorm, wgpu::AddressMode::Repeat));
-				}
-				if let Some(texture) = &mesh.map_normal {
-					textures_to_load.insert((texture.clone(), wgpu::TextureFormat::Rgba8Unorm, wgpu::AddressMode::Repeat));
-				}
+		for (model_name, mesh_names) in model_files {
+			for mesh_name in mesh_names {
+				let meshes = model_files
+					.iter()
+					// TODO: Get rid of these two `clone()` calls
+					.map(|_| self.scene.resources.meshes.get(&(model_name.clone(), mesh_name.clone())))
+					.flatten()
+					.collect::<Vec<_>>();
 
-				// Prepare the material using those textures
-				materials_to_load.push((
-					format!("scene_deferred_{}.material", mesh.name.as_str()),
-					"scene_deferred.wgsl",
-					vec![mesh.map_albedo.clone(), mesh.map_arm.clone(), mesh.map_normal.clone()].into_iter().flatten().collect::<Vec<_>>(),
-				));
+				for mesh in meshes {
+					// Mark the PBR textures to be loaded
+					if let Some(texture) = &mesh.map_albedo {
+						textures_to_load.insert((texture.clone(), wgpu::TextureFormat::Rgba8UnormSrgb, wgpu::AddressMode::Repeat));
+					}
+					if let Some(texture) = &mesh.map_arm {
+						textures_to_load.insert((texture.clone(), wgpu::TextureFormat::Rgba8Unorm, wgpu::AddressMode::Repeat));
+					}
+					if let Some(texture) = &mesh.map_normal {
+						textures_to_load.insert((texture.clone(), wgpu::TextureFormat::Rgba8Unorm, wgpu::AddressMode::Repeat));
+					}
 
-				// Track the model to be spawned in the scene
-				models_to_spawn.push((String::from(mesh_file), mesh.name.clone()));
-
-				// Save the loaded mesh resource
-				self.scene.resources.meshes.insert((String::from(mesh_file), mesh.name.clone()), mesh);
+					// Prepare the material using those textures
+					materials_to_load.push((
+						format!("scene_deferred_{}.material", mesh.name.as_str()),
+						"scene_deferred.wgsl",
+						vec![mesh.map_albedo.clone(), mesh.map_arm.clone(), mesh.map_normal.clone()].into_iter().flatten().collect::<Vec<_>>(),
+					));
+				}
 			}
 		}
 
 		// Shaders
+		let scene_camera = self.scene.root.find_descendant("Main Camera").unwrap().get_cameras()[0];
+
 		let scene_deferred_shader = {
 			let albedo_map = ShaderBinding::Texture(ShaderBindingTexture::default()); // Albedo map
 			let arm_map = ShaderBinding::Texture(ShaderBindingTexture::default()); // AO/Roughness/Metalness map
@@ -357,62 +439,6 @@ impl Engine {
 			let material = Material::new(material_definition.0, material_definition.1, material_definition.2, &self.scene.resources, &self.context.device);
 			self.scene.resources.materials.insert(String::from(material_definition.0), material);
 		}
-	}
-
-	fn load_scene(&mut self, scene_camera: SceneCamera) {
-		// Main camera
-		let main_camera = self.scene.root.new_child("Main Camera");
-		main_camera.add_component(Component::Camera(scene_camera));
-
-		// Spinning cube representing the light
-		let lamp = self.scene.root.new_child("Lamp Model");
-
-		let mut lamp_model = Model::new(&self.scene.resources, ("cube.obj", "BeveledCube"), "scene_deferred_BeveledCube.material");
-		lamp_model.instances.instance_list[0].location.y = 4.;
-		lamp_model.instances.update_buffer(&self.context.device);
-		lamp.add_component(Component::Model(lamp_model));
-
-		let light_cube_movement = crate::scripts::light_cube_movement::LightCubeMovement;
-		lamp.add_component(Component::Behavior(Box::new(light_cube_movement)));
-
-		// Array of cubes
-		let cubes = self.scene.root.new_child("Cubes");
-
-		let mut cube_model = Model::new(&self.scene.resources, ("cube.obj", "BeveledCube"), "scene_deferred_BeveledCube.material");
-
-		const NUM_INSTANCES_PER_ROW: u32 = 10;
-		const SPACE_BETWEEN: f32 = 1.0;
-		cube_model.instances.instance_list = (0..NUM_INSTANCES_PER_ROW)
-			.flat_map(|z| {
-				(0..NUM_INSTANCES_PER_ROW).map(move |x| {
-					let x = SPACE_BETWEEN * (x as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
-					let z = SPACE_BETWEEN * (z as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
-
-					let location = cgmath::Vector3 { x, y: 0.4, z };
-
-					let rotation = if location.is_zero() {
-						cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0))
-					} else {
-						cgmath::Quaternion::from_axis_angle(location.normalize(), cgmath::Deg(45.0))
-					};
-
-					let scale = cgmath::Vector3 { x: 0.25, y: 0.25, z: 0.25 };
-
-					Instance { location, rotation, scale }
-				})
-			})
-			.collect::<Vec<_>>();
-		cube_model.instances.update_buffer(&self.context.device);
-
-		cubes.add_component(Component::Model(cube_model));
-
-		// Sponza
-		let sponza = self.scene.root.new_child("Sponza");
-
-		let mut sponza_model = Model::new(&self.scene.resources, ("sponza_pbr.obj", "Arches"), "scene_deferred_Arches.material");
-		sponza_model.instances.update_buffer(&self.context.device);
-
-		sponza.add_component(Component::Model(sponza_model));
 	}
 
 	fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -626,8 +652,15 @@ impl Engine {
 		for entity in &self.scene.root {
 			for component in &entity.components {
 				if let Component::Model(model) = component {
-					let mesh = &self.scene.resources.meshes[model.mesh];
-					let material = &self.scene.resources.materials[model.material];
+					let mesh = &self.scene.resources.meshes[model
+						.mesh
+						.unwrap_or_else(|| panic!("The mesh '{}:{}' is not loaded but is trying to be drawn", model.mesh_name.0, model.mesh_name.1))];
+					let material = &self.scene.resources.materials[model.material.unwrap_or_else(|| {
+						panic!(
+							"The material '{}' is not loaded but is trying to be drawn with model '{}:{}'",
+							model.material_name, model.mesh_name.0, model.mesh_name.1
+						)
+					})];
 					let shader = &self.scene.resources.shaders[material.shader_id];
 					let pipeline = match &shader.pipeline {
 						crate::shader::PipelineType::RenderPipeline(render_pipeline) => render_pipeline,

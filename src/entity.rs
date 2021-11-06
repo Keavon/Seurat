@@ -3,6 +3,7 @@ use crate::camera::SceneCamera;
 use crate::component::Component;
 use crate::light::Light;
 use crate::model::Model;
+use crate::scene::LoadedResources;
 use crate::transform::Transform;
 
 #[derive(Debug)]
@@ -51,6 +52,21 @@ impl Entity {
 
 		for child in self.children.iter_mut() {
 			child.update_behaviors_of_descendants();
+		}
+	}
+
+	pub fn load_models_on_descendants(&mut self, loaded_resources: &LoadedResources) {
+		let mut iter_components = vec![];
+		std::mem::swap(&mut iter_components, &mut self.components);
+		for component in iter_components.iter_mut() {
+			if let Component::Model(model) = component {
+				model.load(loaded_resources);
+			}
+		}
+		std::mem::swap(&mut iter_components, &mut self.components);
+
+		for child in self.children.iter_mut() {
+			child.load_models_on_descendants(loaded_resources);
 		}
 	}
 
