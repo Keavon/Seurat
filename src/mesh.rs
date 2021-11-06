@@ -115,9 +115,9 @@ impl Mesh {
 					let material = &obj_materials[index];
 
 					(
-						Some(material.diffuse_texture.clone()).filter(String::is_empty),
-						Some(material.shininess_texture.clone()).filter(String::is_empty),
-						Some(material.normal_texture.clone()).filter(String::is_empty),
+						Some(material.diffuse_texture.clone()).filter(|name| !name.is_empty()),
+						Some(material.shininess_texture.clone()).filter(|name| !name.is_empty()),
+						Some(material.normal_texture.clone()).filter(|name| !name.is_empty()),
 					)
 				} else {
 					(None, None, None)

@@ -14,6 +14,7 @@ use crate::shader::{PipelineOptions, RenderPipelineOptions, Shader, ShaderBindin
 use crate::texture::Texture;
 
 use cgmath::{InnerSpace, Rotation3, Zero};
+use std::collections::HashSet;
 use std::path::Path;
 use wgpu::util::DeviceExt;
 use winit::event::{DeviceEvent, ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
@@ -109,14 +110,52 @@ impl Engine {
 	}
 
 	pub fn load(&mut self, assets_path: &Path) {
-		self.load_resources(assets_path);
-		self.load_scene();
+		let scene_camera = SceneCamera::new(&self.context);
+
+		self.load_resources(assets_path, &scene_camera);
+		self.load_scene(scene_camera);
 	}
 
-	fn load_resources(&mut self, assets_path: &Path) {
-		// Shaders
-		let temporary_camera = SceneCamera::new(&self.context);
+	fn load_resources(&mut self, assets_path: &Path, scene_camera: &SceneCamera) {
+		let mut textures_to_load = HashSet::<(String, wgpu::TextureFormat, wgpu::AddressMode)>::new();
+		let mut materials_to_load = Vec::new();
+		let mut models_to_spawn = Vec::new();
 
+		// Meshes
+		let blit_quad_mesh = Mesh::new_blit_quad(&self.context.device, &self.context.queue);
+		self.scene.resources.meshes.insert((String::from("BLIT"), String::from("QUAD")), blit_quad_mesh);
+
+		let mesh_files = ["cube.obj", "sponza_pbr.obj"];
+		for mesh_file in mesh_files {
+			let meshes = Mesh::load(&self.context.device, &self.context.queue, assets_path, mesh_file);
+			for mesh in meshes.unwrap_or_default() {
+				// Mark the PBR textures to be loaded
+				if let Some(texture) = &mesh.map_albedo {
+					textures_to_load.insert((texture.clone(), wgpu::TextureFormat::Rgba8UnormSrgb, wgpu::AddressMode::Repeat));
+				}
+				if let Some(texture) = &mesh.map_arm {
+					textures_to_load.insert((texture.clone(), wgpu::TextureFormat::Rgba8Unorm, wgpu::AddressMode::Repeat));
+				}
+				if let Some(texture) = &mesh.map_normal {
+					textures_to_load.insert((texture.clone(), wgpu::TextureFormat::Rgba8Unorm, wgpu::AddressMode::Repeat));
+				}
+
+				// Prepare the material using those textures
+				materials_to_load.push((
+					format!("scene_deferred_{}.material", mesh.name.as_str()),
+					"scene_deferred.wgsl",
+					vec![mesh.map_albedo.clone(), mesh.map_arm.clone(), mesh.map_normal.clone()].into_iter().flatten().collect::<Vec<_>>(),
+				));
+
+				// Track the model to be spawned in the scene
+				models_to_spawn.push((String::from(mesh_file), mesh.name.clone()));
+
+				// Save the loaded mesh resource
+				self.scene.resources.meshes.insert((String::from(mesh_file), mesh.name.clone()), mesh);
+			}
+		}
+
+		// Shaders
 		let scene_deferred_shader = {
 			let albedo_map = ShaderBinding::Texture(ShaderBindingTexture::default()); // Albedo map
 			let arm_map = ShaderBinding::Texture(ShaderBindingTexture::default()); // AO/Roughness/Metalness map
@@ -136,12 +175,12 @@ impl Engine {
 					],
 					depth_format: Some(wgpu::TextureFormat::Depth32Float),
 					use_instances: true,
-					scene_camera: Some(&temporary_camera),
+					scene_camera: Some(scene_camera),
 					scene_lighting: Some(&self.scene_lighting),
 				}),
 			)
 		};
-		self.scene.resources.shaders.insert(String::from("scene_deferred.wgsl"), scene_deferred_shader);
+		self.scene.resources.shaders.insert(scene_deferred_shader.name.clone(), scene_deferred_shader);
 
 		let pass_ssao_kernel_shader = {
 			let samples_array = ShaderBinding::Buffer(ShaderBindingBuffer::default());
@@ -158,12 +197,12 @@ impl Engine {
 					out_color_formats: vec![wgpu::TextureFormat::Rgba16Float],
 					depth_format: None,
 					use_instances: false,
-					scene_camera: Some(&temporary_camera),
+					scene_camera: Some(scene_camera),
 					scene_lighting: None,
 				}),
 			)
 		};
-		self.scene.resources.shaders.insert(String::from("pass_ssao_kernel.wgsl"), pass_ssao_kernel_shader);
+		self.scene.resources.shaders.insert(pass_ssao_kernel_shader.name.clone(), pass_ssao_kernel_shader);
 
 		let pass_ssao_blurred_shader = {
 			let ssao_kernel = ShaderBinding::Texture(ShaderBindingTexture::default());
@@ -182,7 +221,7 @@ impl Engine {
 				}),
 			)
 		};
-		self.scene.resources.shaders.insert(String::from("pass_ssao_blurred.wgsl"), pass_ssao_blurred_shader);
+		self.scene.resources.shaders.insert(pass_ssao_blurred_shader.name.clone(), pass_ssao_blurred_shader);
 
 		let pass_pbr_shading_shader = {
 			let world_space_fragment_location = ShaderBinding::Texture(ShaderBindingTexture::default());
@@ -200,12 +239,12 @@ impl Engine {
 					out_color_formats: vec![wgpu::TextureFormat::Rgba16Float],
 					depth_format: None,
 					use_instances: false,
-					scene_camera: Some(&temporary_camera),
+					scene_camera: Some(scene_camera),
 					scene_lighting: Some(&self.scene_lighting),
 				}),
 			)
 		};
-		self.scene.resources.shaders.insert(String::from("pass_pbr_shading.wgsl"), pass_pbr_shading_shader);
+		self.scene.resources.shaders.insert(pass_pbr_shading_shader.name.clone(), pass_pbr_shading_shader);
 
 		// let compute_hdr_measuring_shader = {
 		// 	let pbr_shaded = ShaderBinding::Texture(ShaderBindingTexture {
@@ -256,135 +295,19 @@ impl Engine {
 			),
 		);
 
-		self.scene.resources.textures.insert(
-			String::from("cobblestone_albedo.jpg"),
-			Texture::load(
-				&self.context.device,
-				&self.context.queue,
-				assets_path,
-				"cobblestone_albedo.jpg",
-				wgpu::TextureFormat::Rgba8UnormSrgb,
-				wgpu::AddressMode::ClampToEdge,
-			)
-			.unwrap(),
-		);
-		self.scene.resources.textures.insert(
-			String::from("cobblestone_arm.jpg"),
-			Texture::load(
-				&self.context.device,
-				&self.context.queue,
-				assets_path,
-				"cobblestone_arm.jpg",
-				wgpu::TextureFormat::Rgba8Unorm,
-				wgpu::AddressMode::ClampToEdge,
-			)
-			.unwrap(),
-		);
-		self.scene.resources.textures.insert(
-			String::from("cobblestone_normal.jpg"),
-			Texture::load(
-				&self.context.device,
-				&self.context.queue,
-				assets_path,
-				"cobblestone_normal.jpg",
-				wgpu::TextureFormat::Rgba8Unorm,
-				wgpu::AddressMode::ClampToEdge,
-			)
-			.unwrap(),
-		);
-
-		self.scene.resources.textures.insert(
-			String::from("sponza_pbr_14650633544276105767.jpg"),
-			Texture::load(
-				&self.context.device,
-				&self.context.queue,
-				assets_path,
-				"sponza_pbr_14650633544276105767.jpg",
-				wgpu::TextureFormat::Rgba8UnormSrgb,
-				wgpu::AddressMode::ClampToEdge,
-			)
-			.unwrap(),
-		);
-		self.scene.resources.textures.insert(
-			String::from("sponza_pbr_4871783166746854860.jpg"),
-			Texture::load(
-				&self.context.device,
-				&self.context.queue,
-				assets_path,
-				"sponza_pbr_4871783166746854860.jpg",
-				wgpu::TextureFormat::Rgba8Unorm,
-				wgpu::AddressMode::ClampToEdge,
-			)
-			.unwrap(),
-		);
-		self.scene.resources.textures.insert(
-			String::from("sponza_pbr_2051777328469649772.jpg"),
-			Texture::load(
-				&self.context.device,
-				&self.context.queue,
-				assets_path,
-				"sponza_pbr_2051777328469649772.jpg",
-				wgpu::TextureFormat::Rgba8Unorm,
-				wgpu::AddressMode::ClampToEdge,
-			)
-			.unwrap(),
-		);
-
-		// Meshes
-		let blit_quad_mesh = Mesh::new_blit_quad(&self.context.device, &self.context.queue);
-		self.scene.resources.meshes.insert((String::from("BLIT"), String::from("QUAD")), blit_quad_mesh);
-
-		let meshes = Mesh::load(&self.context.device, &self.context.queue, assets_path, "cube.obj");
-		for mesh in meshes.unwrap_or_default() {
-			self.scene.resources.meshes.insert((String::from("cube.obj"), mesh.name.clone()), mesh);
+		for texture_file in textures_to_load {
+			let loaded_texture = Texture::load(&self.context.device, &self.context.queue, assets_path, texture_file.0.as_str(), texture_file.1, texture_file.2).unwrap();
+			self.scene.resources.textures.insert(texture_file.0, loaded_texture);
 		}
 
-		let meshes = Mesh::load(&self.context.device, &self.context.queue, assets_path, "sponza_pbr.obj");
-		for mesh in meshes.unwrap_or_default() {
-			self.scene.resources.meshes.insert((String::from("sponza_pbr.obj"), mesh.name.clone()), mesh);
-		}
-	}
-
-	fn load_materials(&mut self) {
 		// Materials
-		self.scene.resources.materials.insert(
-			String::from("scene_deferred_cubes.material"),
-			Material::new(
-				"scene_deferred_cubes.material",
-				"scene_deferred.wgsl",
-				vec![
-					MaterialDataBinding::TextureName("cobblestone_albedo.jpg"),
-					MaterialDataBinding::TextureName("cobblestone_arm.jpg"),
-					MaterialDataBinding::TextureName("cobblestone_normal.jpg"),
-				],
-				&self.scene.resources,
-				&self.context.device,
-			),
-		);
-
-		self.scene.resources.materials.insert(
-			String::from("scene_deferred_Arches.material"),
-			Material::new(
-				"scene_deferred_Arches.material",
-				"scene_deferred.wgsl",
-				vec![
-					MaterialDataBinding::TextureName("sponza_pbr_14650633544276105767.jpg"),
-					MaterialDataBinding::TextureName("sponza_pbr_4871783166746854860.jpg"),
-					MaterialDataBinding::TextureName("sponza_pbr_2051777328469649772.jpg"),
-				],
-				&self.scene.resources,
-				&self.context.device,
-			),
-		);
-
 		let ssao_samples_buffer = self.context.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
 			label: Some("SSAO samples buffer"),
 			contents: bytemuck::cast_slice(&crate::ssao::generate_sample_hemisphere()),
 			usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
 		});
-		self.scene.resources.materials.insert(
-			String::from("pass_ssao_kernel.material"),
-			Material::new(
+		let material_definitions = [
+			(
 				"pass_ssao_kernel.material",
 				"pass_ssao_kernel.wgsl",
 				vec![
@@ -397,25 +320,13 @@ impl Engine {
 					MaterialDataBinding::Texture(&self.frame_textures.world_space_fragment_location.texture),
 					MaterialDataBinding::Texture(&self.frame_textures.world_space_normal.texture),
 				],
-				&self.scene.resources,
-				&self.context.device,
 			),
-		);
-
-		self.scene.resources.materials.insert(
-			String::from("pass_ssao_blurred.material"),
-			Material::new(
+			(
 				"pass_ssao_blurred.material",
 				"pass_ssao_blurred.wgsl",
 				vec![MaterialDataBinding::Texture(&self.frame_textures.ssao_kernel_map.texture)],
-				&self.scene.resources,
-				&self.context.device,
 			),
-		);
-
-		self.scene.resources.materials.insert(
-			String::from("pass_pbr_shading.material"),
-			Material::new(
+			(
 				"pass_pbr_shading.material",
 				"pass_pbr_shading.wgsl",
 				vec![
@@ -425,35 +336,38 @@ impl Engine {
 					MaterialDataBinding::Texture(&self.frame_textures.arm_map.texture),
 					MaterialDataBinding::Texture(&self.frame_textures.ssao_blurred_map.texture),
 				],
-				&self.scene.resources,
-				&self.context.device,
 			),
-		);
-
-		self.scene.resources.materials.insert(
-			String::from("pass_hdr_exposure.material"),
-			Material::new(
+			(
 				"pass_hdr_exposure.material",
 				"pass_hdr_exposure.wgsl",
 				vec![MaterialDataBinding::Texture(&self.frame_textures.pbr_shaded_map.texture)],
-				&self.scene.resources,
-				&self.context.device,
 			),
-		);
+		];
+		let combined_materials = materials_to_load
+			.iter()
+			.map(|to_load| {
+				(
+					to_load.0.as_str(),
+					to_load.1,
+					to_load.2.iter().map(|texture_path| MaterialDataBinding::TextureName(texture_path.as_str())).collect::<Vec<_>>(),
+				)
+			})
+			.chain(material_definitions);
+		for material_definition in combined_materials {
+			let material = Material::new(material_definition.0, material_definition.1, material_definition.2, &self.scene.resources, &self.context.device);
+			self.scene.resources.materials.insert(String::from(material_definition.0), material);
+		}
 	}
 
-	fn load_scene(&mut self) {
-		let scene_camera = SceneCamera::new(&self.context);
-		self.load_materials();
-
+	fn load_scene(&mut self, scene_camera: SceneCamera) {
 		// Main camera
 		let main_camera = self.scene.root.new_child("Main Camera");
 		main_camera.add_component(Component::Camera(scene_camera));
 
-		// White cube representing the light
+		// Spinning cube representing the light
 		let lamp = self.scene.root.new_child("Lamp Model");
 
-		let mut lamp_model = Model::new(&self.scene.resources, ("cube.obj", "Cube_Finished_Cube.001"), "scene_deferred_Arches.material");
+		let mut lamp_model = Model::new(&self.scene.resources, ("cube.obj", "BeveledCube"), "scene_deferred_BeveledCube.material");
 		lamp_model.instances.instance_list[0].location.y = 4.;
 		lamp_model.instances.update_buffer(&self.context.device);
 		lamp.add_component(Component::Model(lamp_model));
@@ -464,7 +378,7 @@ impl Engine {
 		// Array of cubes
 		let cubes = self.scene.root.new_child("Cubes");
 
-		let mut cube_model = Model::new(&self.scene.resources, ("cube.obj", "Cube_Finished_Cube.001"), "scene_deferred_cubes.material");
+		let mut cube_model = Model::new(&self.scene.resources, ("cube.obj", "BeveledCube"), "scene_deferred_BeveledCube.material");
 
 		const NUM_INSTANCES_PER_ROW: u32 = 10;
 		const SPACE_BETWEEN: f32 = 1.0;

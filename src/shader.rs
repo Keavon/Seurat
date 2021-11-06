@@ -8,6 +8,7 @@ use std::path::Path;
 use wgpu::{BindGroupLayout, ComputePipeline, PipelineLayout, RenderPipeline};
 
 pub struct Shader {
+	pub name: String,
 	pub bind_group_layout: BindGroupLayout,
 	pub pipeline: PipelineType,
 	pub pipeline_layout: PipelineLayout,
@@ -18,6 +19,8 @@ pub struct Shader {
 
 impl Shader {
 	pub fn new(context: &Context, directory: &Path, file: &str, in_shader_bindings: Vec<ShaderBinding>, options: PipelineOptions) -> Self {
+		let name = String::from(file);
+
 		let bind_group_layout_entries = build_bind_group_layout_entries(in_shader_bindings.as_slice());
 		let bind_group_layout = context.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
 			entries: bind_group_layout_entries.as_slice(),
@@ -85,6 +88,7 @@ impl Shader {
 		};
 
 		Self {
+			name,
 			bind_group_layout,
 			pipeline,
 			pipeline_layout,

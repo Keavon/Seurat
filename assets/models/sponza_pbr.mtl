@@ -102,7 +102,7 @@ Ni 1.450000
 d 1.000000
 illum 2
 map_Bump sponza_pbr_14170708867020035030.jpg
-map_Kd 16275776544635328252.png
+map_Kd sponza_pbr_16275776544635328252.png
 map_Ns sponza_pbr_1219024358953944284.jpg
 
 newmtl CurtainsBlue
@@ -206,7 +206,7 @@ Ni 1.450000
 d 1.000000
 illum 2
 map_Bump sponza_pbr_12501374198249454378.jpg
-map_Kd 8006627369776289000.png
+map_Kd sponza_pbr_8006627369776289000.png
 map_Ns sponza_pbr_715093869573992647.jpg
 
 newmtl Poles
@@ -271,7 +271,7 @@ Ni 1.450000
 d 1.000000
 illum 2
 map_Bump sponza_pbr_8773302468495022225.jpg
-map_Kd 5061699253647017043.png
+map_Kd sponza_pbr_5061699253647017043.png
 map_Ns sponza_pbr_11872827283454512094.jpg
 
 newmtl Walls
