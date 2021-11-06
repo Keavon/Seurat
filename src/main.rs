@@ -18,6 +18,7 @@ mod shader;
 mod ssao;
 mod texture;
 mod transform;
+mod voxel_texture;
 
 use crate::engine::Engine;
 
@@ -37,7 +38,7 @@ fn main() {
 
 	// Initialize the window
 	let event_loop = EventLoop::new();
-	let window = WindowBuilder::new().with_inner_size(PhysicalSize::new(1280, 720)).with_title("Seurat").build(&event_loop).unwrap();
+	let window = WindowBuilder::new().with_inner_size(PhysicalSize::new(1920, 1080)).with_title("Seurat").build(&event_loop).unwrap();
 
 	// Initialize the engine
 	let mut engine = pollster::block_on(Engine::new(&window));

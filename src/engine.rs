@@ -12,6 +12,7 @@ use crate::pass::{ComputePass, Pass, RenderPass};
 use crate::scene::Scene;
 use crate::shader::{PipelineOptions, RenderPipelineOptions, Shader, ShaderBinding, ShaderBindingBuffer, ShaderBindingTexture};
 use crate::texture::Texture;
+use crate::voxel_texture::VoxelTexture;
 
 use cgmath::{InnerSpace, Rotation3, Zero};
 use std::collections::{HashMap, HashSet};
@@ -84,6 +85,8 @@ impl Engine {
 			ssao_blurred_map,
 			pbr_shaded_map,
 		};
+
+		let voxel_light_map = VoxelTexture::new(&context.device, (128, 128, 128), wgpu::TextureFormat::Rgba32Uint, "Voxel Light Map (u32)", None);
 
 		// Prepare the initial time value used to calculate the delta time since last frame
 		let frame_time = std::time::Instant::now();
