@@ -76,7 +76,7 @@ fn main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
 // Fragment shader
 [[stage(fragment)]]
 fn main(in: VertexOutput) -> FragmentOutput {
-	let NORMAL_MAP_STRENGTH = 0.5;
+	let NORMAL_MAP_STRENGTH = 1.0;
 
 	let uv = vec2<f32>(in.uv.x, 1. - in.uv.y);
 

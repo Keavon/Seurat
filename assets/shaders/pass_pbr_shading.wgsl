@@ -96,8 +96,8 @@ fn main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
 	let light_location = light.location;
 	let albedo = pow(albedo_map.rgb, vec3<f32>(2.2));
 	let alpha = albedo_map.a;
-	let ambient = vec3<f32>(0.0001);
-	let ao = arm_map.x;
+	let ambient = vec3<f32>(0.05);
+	let ao = (1. - arm_map.x);
 	let roughness = arm_map.y;
 	let metallic = arm_map.z;
 	let light_color = vec3<f32>(5.);
@@ -159,7 +159,7 @@ fn main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
 	// Add ambient occlusion
 	let ambient_removal = ao * ssao;
 	let ambient_component = albedo * ambient * pow(ambient_removal, 3.);
-	color = color + ambient_component;
 
+	color = color + ambient_component;
 	return vec4<f32>(color, 1.);
 }

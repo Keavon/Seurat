@@ -378,7 +378,8 @@ impl Engine {
 		);
 
 		for texture_file in textures_to_load {
-			let loaded_texture = Texture::load(&self.context.device, &self.context.queue, assets_path, texture_file.0.as_str(), texture_file.1, texture_file.2).unwrap();
+			let mut loaded_texture = Texture::load(&self.context.device, &self.context.queue, assets_path, texture_file.0.as_str(), texture_file.1, texture_file.2).unwrap();
+			loaded_texture.generate_mipmaps(&self.context);
 			self.scene.resources.textures.insert(texture_file.0, loaded_texture);
 		}
 

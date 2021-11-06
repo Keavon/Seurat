@@ -2,7 +2,6 @@ use crate::texture::Texture;
 
 pub struct FrameTexture {
 	pub texture: Texture,
-	pub format: wgpu::TextureFormat,
 	pub label: String,
 	pub compare: Option<wgpu::CompareFunction>,
 }
@@ -40,15 +39,14 @@ impl FrameTexture {
 		});
 
 		Self {
-			texture: Texture { texture, view, sampler },
-			format,
+			texture: Texture { texture, view, sampler, format, size },
 			label: String::from(label),
 			compare,
 		}
 	}
 
 	pub fn recreate(&mut self, device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) {
-		self.texture = Self::new(device, config, self.format, self.label.as_str(), self.compare).texture;
+		self.texture = Self::new(device, config, self.texture.format, self.label.as_str(), self.compare).texture;
 	}
 }
 

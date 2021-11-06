@@ -40,8 +40,8 @@ fn main(model: VertexInput) -> VertexOutput {
 [[stage(fragment)]]
 fn main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
 	let KERNEL_SIZE = 32u;
-	let RADIUS = 0.5;
-	let BIAS = 0.01;
+	let RADIUS = 1.;
+	let BIAS = 0.1;
 
 	let noise_scale = vec2<f32>(textureDimensions(t_world_space_fragment_location)) / vec2<f32>(textureDimensions(t_noise));
 
