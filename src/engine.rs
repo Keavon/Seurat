@@ -250,12 +250,17 @@ impl Engine {
 
 		let calc_voxel_lightmap_shader = {
 			let albedo_map = ShaderBinding::Texture(ShaderBindingTexture::default());
+			let voxel_light_map_binding = {
+				let mut binding_tex = ShaderBindingTexture::default();
+				binding_tex.dimensions = wgpu::TextureViewDimension::D3;
+				ShaderBinding::StorageTexture(binding_tex, wgpu::TextureFormat::Rgba8Unorm)
+			};
 
 			Shader::new(
 				&self.context,
 				assets_path,
 				"calc_voxel_lightmap.wgsl",
-				vec![albedo_map],
+				vec![albedo_map, voxel_light_map_binding],
 				PipelineOptions::RenderPipeline(RenderPipelineOptions {
 					out_color_formats: vec![wgpu::TextureFormat::Rgba16Float,],
 					depth_format: None,

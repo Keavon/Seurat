@@ -13,8 +13,7 @@
 [[group(2), binding(0)]] var t_albedo: texture_2d<f32>;
 [[group(2), binding(1)]] var s_albedo: sampler;
 
-[[group(2), binding(2)]] var t_voxel_lightmap: texture_3d<f32>;
-[[group(2), binding(3)]] var s_voxel_lightmap: sampler;
+[[group(2), binding(2)]] var t_voxel_lightmap: texture_storage_3d<rgba8unorm, write>;
 
 // Attributes
 struct VertexInput {
@@ -70,6 +69,12 @@ fn main(in: VertexOutput) -> FragmentOutput {
 
 	let pos = in.world_space_fragment_location;
 	let color = textureSample(t_albedo, s_albedo, uv).rgba;
+
+	let scene_dimensions = vec3<f32>(30., 14., 20.);
+	let voxel_index = vec3<i32>(pos / scene_dimensions);
+	
+	// TODO: incorporate atomic add
+	textureStore(t_voxel_lightmap, voxel_index, color);
 
 	return FragmentOutput(
 		vec4<f32>(in.world_space_fragment_location, 1.),

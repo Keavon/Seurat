@@ -22,7 +22,7 @@ impl VoxelTexture {
 			sample_count: 1,
 			dimension: wgpu::TextureDimension::D3,
 			format,
-			usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+			usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
 		};
 		let texture = device.create_texture(&texture_descriptor);
 
@@ -47,9 +47,5 @@ impl VoxelTexture {
 			label: String::from(label),
 			compare,
 		}
-	}
-
-	pub fn recreate(&mut self, device: &wgpu::Device) {
-		self.texture = Self::new(device, self.dimensions, self.format, self.label.as_str(), self.compare).texture;
 	}
 }

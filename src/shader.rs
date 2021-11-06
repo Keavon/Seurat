@@ -146,6 +146,23 @@ fn build_bind_group_layout_entries(bindings: &[ShaderBinding]) -> Vec<wgpu::Bind
 					},
 				]
 			}
+			ShaderBinding::StorageTexture(texture, format) => {
+				let binding = binding_index;
+				binding_index += 1;
+
+				vec![
+					wgpu::BindGroupLayoutEntry {
+						binding,
+						visibility: texture.visible_in_stages,
+						ty: wgpu::BindingType::StorageTexture {
+							access: wgpu::StorageTextureAccess::WriteOnly,
+							format: format.clone(),
+							view_dimension: texture.dimensions,
+						},
+						count: None,
+					},
+				]
+			}
 		})
 		.collect()
 }
@@ -245,6 +262,7 @@ pub struct ComputePipelineOptions {}
 pub enum ShaderBinding {
 	Buffer(ShaderBindingBuffer),
 	Texture(ShaderBindingTexture),
+	StorageTexture(ShaderBindingTexture, wgpu::TextureFormat),
 }
 
 pub struct ShaderBindingBuffer {
