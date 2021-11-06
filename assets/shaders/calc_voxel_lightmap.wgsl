@@ -71,7 +71,8 @@ fn main(in: VertexOutput) -> FragmentOutput {
 	let color = textureSample(t_albedo, s_albedo, uv).rgba;
 
 	let scene_dimensions = vec3<f32>(30., 14., 20.);
-	let voxel_index = vec3<i32>(pos / scene_dimensions);
+	let dims = textureDimensions(t_voxel_lightmap);
+	let voxel_index = vec3<i32>((pos * vec3<f32>(dims)) / scene_dimensions);
 	
 	// TODO: incorporate atomic add
 	textureStore(t_voxel_lightmap, voxel_index, color);

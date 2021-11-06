@@ -16,6 +16,8 @@
 [[group(2), binding(3)]] var s_arm: sampler;
 [[group(2), binding(4)]] var t_normal: texture_2d<f32>;
 [[group(2), binding(5)]] var s_normal: sampler;
+[[group(2), binding(6)]] var t_voxel_lightmap: texture_3d<f32>;
+[[group(2), binding(7)]] var s_voxel_lightmap: sampler;
 
 // Attributes
 struct VertexInput {
@@ -95,10 +97,14 @@ fn main(in: VertexOutput) -> FragmentOutput {
 	var tangent_space_normal = textureSample(t_normal, s_normal, uv).xyz * 2. - 1.;
 	world_space_normal = from_tangent_space * normalize(mix(vec3<f32>(0., 1., 0.), tangent_space_normal, NORMAL_MAP_STRENGTH));
 
+	// Lightmap Sample (no voxel cone tracing)
+	let scene_dimensions = vec3<f32>(30., 14., 20.);
+	let lightmap_sample = textureSample(t_voxel_lightmap, s_voxel_lightmap, in.world_space_fragment_location / scene_dimensions);
+
 	return FragmentOutput(
 		vec4<f32>(in.world_space_fragment_location, 1.),
 		vec4<f32>(world_space_normal, 1.),
-		textureSample(t_albedo, s_albedo, uv).rgba,
+		lightmap_sample,//textureSample(t_albedo, s_albedo, uv).rgba,
 		textureSample(t_arm, s_arm, uv).rgba,
 	);
 }

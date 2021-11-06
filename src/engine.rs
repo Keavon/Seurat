@@ -87,7 +87,7 @@ impl Engine {
 			pbr_shaded_map,
 		};
 
-		let voxel_light_map = VoxelTexture::new(&context.device, (128, 128, 128), wgpu::TextureFormat::Rgba8Unorm, "Voxel Light Map (u32)", None);
+		let voxel_light_map = VoxelTexture::new(&context.device, (256, 256, 256), wgpu::TextureFormat::Rgba8Unorm, "Voxel Light Map (u32)", None);
 
 		// Prepare the initial time value used to calculate the delta time since last frame
 		let frame_time = std::time::Instant::now();
@@ -234,7 +234,7 @@ impl Engine {
 					materials_to_load.push((
 						format!("scene_deferred_{}.material", mesh.name.as_str()),
 						"scene_deferred.wgsl",
-						vec![mesh.map_albedo.clone(), mesh.map_arm.clone(), mesh.map_normal.clone()].into_iter().flatten().collect::<Vec<_>>(),
+						vec![mesh.map_albedo.clone(), mesh.map_arm.clone(), mesh.map_normal.clone(), Some(String::from("VOXEL_LIGHTMAP"))].into_iter().flatten().collect::<Vec<_>>(),
 					));
 					materials_to_load.push((
 						format!("calc_voxel_lightmap_{}.material", mesh.name.as_str()),
@@ -276,12 +276,17 @@ impl Engine {
 			let albedo_map = ShaderBinding::Texture(ShaderBindingTexture::default()); // Albedo map
 			let arm_map = ShaderBinding::Texture(ShaderBindingTexture::default()); // AO/Roughness/Metalness map
 			let normal_map = ShaderBinding::Texture(ShaderBindingTexture::default()); // Normal map
+			let voxel_light_map_binding = {
+				let mut binding_tex = ShaderBindingTexture::default();
+				binding_tex.dimensions = wgpu::TextureViewDimension::D3;
+				ShaderBinding::Texture(binding_tex)
+			};
 
 			Shader::new(
 				&self.context,
 				assets_path,
 				"scene_deferred.wgsl",
-				vec![albedo_map, arm_map, normal_map],
+				vec![albedo_map, arm_map, normal_map, voxel_light_map_binding],
 				PipelineOptions::RenderPipeline(RenderPipelineOptions {
 					out_color_formats: vec![
 						wgpu::TextureFormat::Rgba16Float,
