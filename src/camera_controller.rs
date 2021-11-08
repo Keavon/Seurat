@@ -3,7 +3,7 @@ use std::time::Duration;
 use winit::dpi::PhysicalPosition;
 use winit::event::{ElementState, MouseScrollDelta, VirtualKeyCode};
 
-use crate::camera::SceneCamera;
+use crate::camera::Camera;
 
 const SAFE_FRAC_PI_2: f32 = std::f32::consts::FRAC_PI_2 - 0.0001;
 
@@ -83,7 +83,7 @@ impl CameraController {
 		};
 	}
 
-	pub fn update_camera(&mut self, camera: &mut SceneCamera, dt: Duration) {
+	pub fn update_camera(&mut self, camera: &mut Camera, dt: Duration) {
 		let dt = dt.as_secs_f32();
 
 		// Move forward/backward and left/right

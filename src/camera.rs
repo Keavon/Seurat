@@ -1,8 +1,12 @@
-use cgmath::{InnerSpace, Matrix4, Point3, Rad, SquareMatrix, Vector3};
+use std::io::Read;
+
+use cgmath::{EuclideanSpace, Euler, InnerSpace, Matrix4, Point3, Rad, SquareMatrix, Vector3};
 use wgpu::util::DeviceExt;
 use wgpu::{BindGroup, BindGroupLayout, Buffer};
 
 use crate::context::Context;
+use crate::entity::Entity;
+use crate::transform::{self, Transform};
 
 #[rustfmt::skip]
 pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
@@ -13,7 +17,7 @@ pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
 );
 
 #[derive(Debug)]
-pub struct SceneCamera {
+pub struct Camera {
 	pub location: Point3<f32>,
 	pub pitch: Rad<f32>,
 	pub yaw: Rad<f32>,
@@ -24,17 +28,18 @@ pub struct SceneCamera {
 	pub camera_bind_group: BindGroup,
 }
 
-impl SceneCamera {
-	pub fn new(context: &Context) -> Self {
+impl Camera {
+	pub fn new(context: &Context, projection: Projection) -> Self {
 		let mut camera_uniform = CameraUniform::new();
 
 		let location: Point3<f32> = (-10.0, 5.0, 0.0).into();
 		let pitch: Rad<f32> = cgmath::Deg(-20.0).into();
 		let yaw: Rad<f32> = cgmath::Deg(0.0).into();
 		camera_uniform.v_matrix = Self::calculate_v_matrix(location, pitch, yaw).into();
-
-		let projection = Projection::new(context.surface_configuration.width, context.surface_configuration.height, cgmath::Deg(45.0), 0.1, 100.0);
-		camera_uniform.p_matrix = projection.p_matrix().into();
+		camera_uniform.p_matrix = match &projection {
+			Projection::Perspective(p) => p.p_matrix().into(),
+			Projection::Orthographic(o) => o.p_matrix().into(),
+		};
 
 		let camera_buffer = context.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
 			label: Some("Camera Buffer"),
@@ -77,9 +82,19 @@ impl SceneCamera {
 		}
 	}
 
+	pub fn update_transform(&mut self, transform: &Transform) {
+		self.location = Point3::new(transform.location.x as f32, transform.location.y as f32, transform.location.z as f32);
+		let euler = Euler::from(transform.rotation);
+		self.pitch = Rad(euler.x.0 as f32);
+		self.yaw = Rad(euler.y.0 as f32);
+	}
+
 	pub fn update_v_p_matrices(&mut self, queue: &mut wgpu::Queue) {
 		self.camera_uniform.v_matrix = Self::calculate_v_matrix(self.location, self.pitch, self.yaw).into();
-		self.camera_uniform.p_matrix = self.projection.p_matrix().into();
+		self.camera_uniform.p_matrix = match &self.projection {
+			Projection::Perspective(p) => p.p_matrix().into(),
+			Projection::Orthographic(o) => o.p_matrix().into(),
+		};
 
 		queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera_uniform]));
 	}
@@ -116,14 +131,20 @@ impl Default for CameraUniform {
 }
 
 #[derive(Debug)]
-pub struct Projection {
+pub enum Projection {
+	Perspective(PerspectiveProjection),
+	Orthographic(OrthographicProjection),
+}
+
+#[derive(Debug)]
+pub struct PerspectiveProjection {
 	aspect: f32,
 	fovy: Rad<f32>,
 	znear: f32,
 	zfar: f32,
 }
 
-impl Projection {
+impl PerspectiveProjection {
 	pub fn new<F: Into<Rad<f32>>>(width: u32, height: u32, fovy: F, znear: f32, zfar: f32) -> Self {
 		Self {
 			aspect: width as f32 / height as f32,
@@ -139,5 +160,40 @@ impl Projection {
 
 	pub fn p_matrix(&self) -> Matrix4<f32> {
 		OPENGL_TO_WGPU_MATRIX * cgmath::perspective(self.fovy, self.aspect, self.znear, self.zfar)
+	}
+}
+
+#[derive(Debug)]
+pub struct OrthographicProjection {
+	aspect: f32,
+	size: f32,
+	znear: f32,
+	zfar: f32,
+}
+
+impl OrthographicProjection {
+	pub fn new(width: u32, height: u32, size: f32, znear: f32, zfar: f32) -> Self {
+		Self {
+			aspect: width as f32 / height as f32,
+			size,
+			znear,
+			zfar,
+		}
+	}
+
+	pub fn resize(&mut self, width: u32, height: u32) {
+		self.aspect = width as f32 / height as f32;
+	}
+
+	pub fn p_matrix(&self) -> Matrix4<f32> {
+		OPENGL_TO_WGPU_MATRIX
+			* cgmath::ortho(
+				-self.size * self.aspect * 0.5,
+				self.size * self.aspect * 0.5,
+				-self.size * (1. / self.aspect) * 0.5,
+				self.size * (1. / self.aspect) * 0.5,
+				self.znear,
+				self.zfar,
+			)
 	}
 }

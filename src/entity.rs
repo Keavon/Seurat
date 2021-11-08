@@ -1,6 +1,7 @@
 use crate::behavior::Behavior;
-use crate::camera::SceneCamera;
+use crate::camera::{Camera, Projection};
 use crate::component::Component;
+use crate::context::Context;
 use crate::light::Light;
 use crate::model::Model;
 use crate::scene::LoadedResources;
@@ -34,6 +35,11 @@ impl Entity {
 
 	pub fn add_component(&mut self, component: Component) {
 		self.components.push(component)
+	}
+
+	pub fn add_camera_component(&mut self, context: &Context, projection: Projection) {
+		let camera = Camera::new(&context, projection);
+		self.add_component(Component::Camera(camera));
 	}
 
 	pub fn iter(&self) -> EntityIter<'_> {
@@ -118,7 +124,7 @@ impl Entity {
 			.collect()
 	}
 
-	pub fn get_cameras(&self) -> Vec<&SceneCamera> {
+	pub fn get_cameras(&self) -> Vec<&Camera> {
 		self.components
 			.iter()
 			.filter_map(|component| match component {
@@ -128,7 +134,7 @@ impl Entity {
 			.collect()
 	}
 
-	pub fn get_cameras_mut(&mut self) -> Vec<&mut SceneCamera> {
+	pub fn get_cameras_mut(&mut self) -> Vec<&mut Camera> {
 		self.components
 			.iter_mut()
 			.filter_map(|component| match component {

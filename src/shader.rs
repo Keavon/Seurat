@@ -1,4 +1,4 @@
-use crate::camera::SceneCamera;
+use crate::camera::Camera;
 use crate::context::Context;
 use crate::instance::InstanceRaw;
 use crate::light::SceneLighting;
@@ -150,18 +150,16 @@ fn build_bind_group_layout_entries(bindings: &[ShaderBinding]) -> Vec<wgpu::Bind
 				let binding = binding_index;
 				binding_index += 1;
 
-				vec![
-					wgpu::BindGroupLayoutEntry {
-						binding,
-						visibility: texture.visible_in_stages,
-						ty: wgpu::BindingType::StorageTexture {
-							access: wgpu::StorageTextureAccess::WriteOnly,
-							format: format.clone(),
-							view_dimension: texture.dimensions,
-						},
-						count: None,
+				vec![wgpu::BindGroupLayoutEntry {
+					binding,
+					visibility: texture.visible_in_stages,
+					ty: wgpu::BindingType::StorageTexture {
+						access: wgpu::StorageTextureAccess::WriteOnly,
+						format: format.clone(),
+						view_dimension: texture.dimensions,
 					},
-				]
+					count: None,
+				}]
 			}
 		})
 		.collect()
@@ -253,7 +251,7 @@ pub struct RenderPipelineOptions<'a> {
 	pub out_color_formats: Vec<wgpu::TextureFormat>,
 	pub depth_format: Option<wgpu::TextureFormat>,
 	pub use_instances: bool,
-	pub scene_camera: Option<&'a SceneCamera>,
+	pub scene_camera: Option<&'a Camera>,
 	pub scene_lighting: Option<&'a SceneLighting>,
 }
 

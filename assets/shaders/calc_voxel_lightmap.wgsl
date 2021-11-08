@@ -8,12 +8,11 @@
 };
 
 // Uniforms
-[[group(0), binding(0)]] var<uniform> camera: Camera;
-[[group(1), binding(0)]] var<uniform> light: Light;
-[[group(2), binding(0)]] var t_albedo: texture_2d<f32>;
-[[group(2), binding(1)]] var s_albedo: sampler;
-
-[[group(2), binding(2)]] var t_voxel_lightmap: texture_storage_3d<rgba8unorm, write>;
+[[group(0), binding(0)]] var<uniform> light: Light;
+[[group(1), binding(0)]] var<uniform> camera: Camera;
+[[group(1), binding(1)]] var t_albedo: texture_2d<f32>;
+[[group(1), binding(2)]] var s_albedo: sampler;
+[[group(1), binding(3)]] var t_voxel_lightmap: texture_storage_3d<rgba8unorm, write>;
 
 // Attributes
 struct VertexInput {

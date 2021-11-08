@@ -1,4 +1,4 @@
-use crate::camera::SceneCamera;
+use crate::camera::{Camera, OrthographicProjection, PerspectiveProjection, Projection};
 use crate::camera_controller::CameraController;
 use crate::component::Component;
 use crate::context::Context;
@@ -18,6 +18,7 @@ use cgmath::{InnerSpace, Rotation3, Zero};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use wgpu::util::DeviceExt;
+use wgpu::BufferBinding;
 use winit::event::{DeviceEvent, ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 use winit::{event_loop::ControlFlow, window::Window};
 
@@ -143,9 +144,19 @@ impl Engine {
 
 	fn build_scene(&mut self, model_files: &HashMap<String, Vec<String>>) {
 		// Main camera
-		let scene_camera = SceneCamera::new(&self.context);
+		let projection = PerspectiveProjection::new(self.context.surface_configuration.width, self.context.surface_configuration.height, cgmath::Deg(45.0), 0.1, 100.0);
 		let main_camera = self.scene.root.new_child("Main Camera");
-		main_camera.add_component(Component::Camera(scene_camera));
+		main_camera.add_camera_component(&self.context, Projection::Perspective(projection));
+
+		// Voxel camera
+		let orthographic = OrthographicProjection::new(1, 1, 30.0, 0., 100.0);
+		let voxel_camera = self.scene.root.new_child("Voxel Camera");
+		voxel_camera.transform.location = cgmath::Point3::new(0., 0., -0.);
+		voxel_camera.transform.rotation = cgmath::Quaternion::new(1., 0., 0., 0.);
+		voxel_camera.add_camera_component(&self.context, Projection::Orthographic(orthographic));
+		let voxel_camera_transform = voxel_camera.transform;
+		voxel_camera.get_cameras_mut()[0].update_transform(&voxel_camera_transform);
+		voxel_camera.get_cameras_mut()[0].update_v_p_matrices(&mut self.context.queue);
 
 		// Spinning cube representing the light
 		let lamp = self.scene.root.new_child("Lamp Model");
@@ -234,21 +245,29 @@ impl Engine {
 					materials_to_load.push((
 						format!("scene_deferred_{}.material", mesh.name.as_str()),
 						"scene_deferred.wgsl",
-						vec![mesh.map_albedo.clone(), mesh.map_arm.clone(), mesh.map_normal.clone(), Some(String::from("VOXEL_LIGHTMAP"))].into_iter().flatten().collect::<Vec<_>>(),
+						vec![mesh.map_albedo.clone(), mesh.map_arm.clone(), mesh.map_normal.clone(), Some(String::from("VOXEL_LIGHTMAP"))]
+							.into_iter()
+							.flatten()
+							.collect::<Vec<_>>(),
 					));
 					materials_to_load.push((
 						format!("calc_voxel_lightmap_{}.material", mesh.name.as_str()),
 						"calc_voxel_lightmap.wgsl",
-						vec![mesh.map_albedo.clone(), Some(String::from("VOXEL_LIGHTMAP"))].into_iter().flatten().collect::<Vec<_>>(),
+						vec![Some(String::from("VOXEL_CAMERA_MATRICES")), mesh.map_albedo.clone(), Some(String::from("VOXEL_LIGHTMAP"))]
+							.into_iter()
+							.flatten()
+							.collect::<Vec<_>>(),
 					));
 				}
 			}
 		}
 
 		// Shaders
-		let scene_camera = self.scene.root.find_descendant("Main Camera").unwrap().get_cameras()[0];
+		let main_camera = self.scene.root.find_descendant("Main Camera").unwrap().get_cameras()[0];
+		let voxel_camera = self.scene.root.find_descendant("Voxel Camera").unwrap().get_cameras()[0];
 
 		let calc_voxel_lightmap_shader = {
+			let camera_matrices = ShaderBinding::Buffer(ShaderBindingBuffer::default());
 			let albedo_map = ShaderBinding::Texture(ShaderBindingTexture::default());
 			let voxel_light_map_binding = {
 				let mut binding_tex = ShaderBindingTexture::default();
@@ -260,12 +279,12 @@ impl Engine {
 				&self.context,
 				assets_path,
 				"calc_voxel_lightmap.wgsl",
-				vec![albedo_map, voxel_light_map_binding],
+				vec![camera_matrices, albedo_map, voxel_light_map_binding],
 				PipelineOptions::RenderPipeline(RenderPipelineOptions {
-					out_color_formats: vec![wgpu::TextureFormat::Rgba16Float,],
+					out_color_formats: vec![wgpu::TextureFormat::Rgba16Float],
 					depth_format: None,
 					use_instances: true,
-					scene_camera: Some(scene_camera),
+					scene_camera: None,
 					scene_lighting: Some(&self.scene_lighting),
 				}),
 			)
@@ -296,7 +315,7 @@ impl Engine {
 					],
 					depth_format: Some(wgpu::TextureFormat::Depth32Float),
 					use_instances: true,
-					scene_camera: Some(scene_camera),
+					scene_camera: Some(main_camera),
 					scene_lighting: Some(&self.scene_lighting),
 				}),
 			)
@@ -318,7 +337,7 @@ impl Engine {
 					out_color_formats: vec![wgpu::TextureFormat::Rgba16Float],
 					depth_format: None,
 					use_instances: false,
-					scene_camera: Some(scene_camera),
+					scene_camera: Some(main_camera),
 					scene_lighting: None,
 				}),
 			)
@@ -360,7 +379,7 @@ impl Engine {
 					out_color_formats: vec![wgpu::TextureFormat::Rgba16Float],
 					depth_format: None,
 					use_instances: false,
-					scene_camera: Some(scene_camera),
+					scene_camera: Some(main_camera),
 					scene_lighting: Some(&self.scene_lighting),
 				}),
 			)
@@ -471,11 +490,19 @@ impl Engine {
 				(
 					to_load.0.as_str(),
 					to_load.1,
-					to_load.2.iter().map(|texture_path| 
-						match texture_path.as_str() {
+					to_load
+						.2
+						.iter()
+						.map(|texture_path| match texture_path.as_str() {
 							"VOXEL_LIGHTMAP" => MaterialDataBinding::Texture(&self.voxel_light_map.texture),
-							_ => MaterialDataBinding::TextureName(texture_path.as_str())
-						}).collect::<Vec<_>>(),
+							"VOXEL_CAMERA_MATRICES" => MaterialDataBinding::Buffer(BufferBinding {
+								buffer: &voxel_camera.camera_buffer,
+								offset: 0,
+								size: None,
+							}),
+							_ => MaterialDataBinding::TextureName(texture_path.as_str()),
+						})
+						.collect::<Vec<_>>(),
 				)
 			})
 			.chain(material_definitions);
@@ -491,9 +518,10 @@ impl Engine {
 			self.context.surface_configuration.height = new_size.height;
 			self.context.surface.configure(&self.context.device, &self.context.surface_configuration);
 
-			self.scene.find_entity_mut(self.active_camera.as_str()).unwrap().get_cameras_mut()[0]
-				.projection
-				.resize(new_size.width, new_size.height);
+			match &mut self.scene.find_entity_mut(self.active_camera.as_str()).unwrap().get_cameras_mut()[0].projection {
+				Projection::Perspective(p) => p.resize(new_size.width, new_size.height),
+				Projection::Orthographic(o) => o.resize(new_size.width, new_size.height),
+			}
 
 			self.frame_textures.recreate_all(&self.context.device, &self.context.surface_configuration);
 		}
@@ -711,7 +739,7 @@ impl Engine {
 					let maybe_material_index = match pass_name {
 						"Pass: Calc Voxel Lightmap" => model.voxel_lightmap_material,
 						"Scene: Deferred" => model.scene_deferred_material,
-						_ => panic!("Invalid render pass for drawing scene {}", pass_name)
+						_ => panic!("Invalid render pass for drawing scene {}", pass_name),
 					};
 					let material_index = maybe_material_index.unwrap_or_else(|| {
 						panic!(

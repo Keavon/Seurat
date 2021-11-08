@@ -1,6 +1,6 @@
 pub use winit::dpi::Position;
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct Transform {
 	pub location: cgmath::Point3<f64>,
 	pub rotation: cgmath::Quaternion<f64>,
