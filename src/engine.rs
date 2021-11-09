@@ -433,6 +433,34 @@ impl Engine {
 		};
 		self.scene.resources.shaders.insert(voxel_texture_generating_shader.name.clone(), voxel_texture_generating_shader);
 
+		let utility_3d_mipmap_blit_shader = {
+			let in_binding = {
+				let mut binding_tex = ShaderBindingTexture {
+					visible_in_stages: wgpu::ShaderStages::COMPUTE,
+					..ShaderBindingTexture::default()
+				};
+				binding_tex.dimensions = wgpu::TextureViewDimension::D3;
+				ShaderBinding::Texture(binding_tex)
+			};
+			let out_binding = {
+				let mut binding_tex = ShaderBindingTexture {
+					visible_in_stages: wgpu::ShaderStages::COMPUTE,
+					..ShaderBindingTexture::default()
+				};
+				binding_tex.dimensions = wgpu::TextureViewDimension::D3;
+				ShaderBinding::StorageTexture(binding_tex, wgpu::TextureFormat::Rgba8Unorm)
+			};
+
+			Shader::new(
+				&self.context,
+				assets_path,
+				"utility_3d_mipmap_blit.wgsl",
+				vec![in_binding, out_binding],
+				PipelineOptions::ComputePipeline(ComputePipelineOptions {}),
+			)
+		};
+		self.scene.resources.shaders.insert(utility_3d_mipmap_blit_shader.name.clone(), utility_3d_mipmap_blit_shader);
+
 		let pass_hdr_exposure_shader = {
 			let pbr_shaded = ShaderBinding::Texture(ShaderBindingTexture::default());
 

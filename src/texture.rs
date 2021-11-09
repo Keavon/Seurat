@@ -123,7 +123,7 @@ impl Texture {
 
 		let shader = context.device.create_shader_module(&wgpu::ShaderModuleDescriptor {
 			label: None,
-			source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("../assets/shaders/utility_mipmap_blit.wgsl"))),
+			source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("../assets/shaders/utility_2d_mipmap_blit.wgsl"))),
 		});
 
 		let pipeline = context.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
