@@ -13,7 +13,9 @@ pub struct RenderPass<'a> {
 	pub clear_color: wgpu::Color,
 }
 
+#[derive(Debug)]
 pub struct ComputePass {
 	pub label: String,
 	pub material: String,
+	pub work_groups_size: (u32, u32, u32),
 }

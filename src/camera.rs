@@ -102,6 +102,19 @@ impl Camera {
 	pub fn calculate_v_matrix(location: Point3<f32>, pitch: Rad<f32>, yaw: Rad<f32>) -> Matrix4<f32> {
 		Matrix4::look_to_rh(location, Vector3::new(yaw.0.cos(), pitch.0.sin(), yaw.0.sin()).normalize(), Vector3::unit_y())
 	}
+
+	pub fn update_transform_and_matrices(&mut self, transform: &Transform, queue: &mut wgpu::Queue) {
+		self.update_transform(transform);
+		let translation = cgmath::Vector3::new(transform.location.x as f32, transform.location.y as f32, transform.location.z as f32);
+		let rotation = cgmath::Quaternion::new(transform.rotation.s as f32, transform.rotation.v.x as f32, transform.rotation.v.y as f32, transform.rotation.v.z as f32);
+		self.camera_uniform.v_matrix = (cgmath::Matrix4::from_translation(translation) * cgmath::Matrix4::from(rotation)).into();
+		self.camera_uniform.p_matrix = match &self.projection {
+			Projection::Perspective(p) => p.p_matrix().into(),
+			Projection::Orthographic(o) => o.p_matrix().into(),
+		};
+
+		queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera_uniform]));
+	}
 }
 
 // We need this for Rust to store our data correctly for the shaders
@@ -163,7 +176,7 @@ impl PerspectiveProjection {
 	}
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct OrthographicProjection {
 	aspect: f32,
 	size: f32,

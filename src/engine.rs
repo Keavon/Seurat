@@ -5,16 +5,17 @@ use crate::context::Context;
 use crate::frame_texture::{FrameTexture, FrameTextures};
 use crate::instance::Instance;
 use crate::light::SceneLighting;
-use crate::material::{Material, MaterialDataBinding};
+use crate::material::{self, Material, MaterialDataBinding};
 use crate::mesh::Mesh;
 use crate::model::Model;
 use crate::pass::{ComputePass, Pass, RenderPass};
 use crate::scene::Scene;
 use crate::shader::{ComputePipelineOptions, PipelineOptions, RenderPipelineOptions, Shader, ShaderBinding, ShaderBindingBuffer, ShaderBindingTexture};
 use crate::texture::Texture;
+use crate::transform::Transform;
 use crate::voxel_texture::VoxelTexture;
 
-use cgmath::{InnerSpace, Rotation3, Zero};
+use cgmath::{InnerSpace, Rotation, Rotation3, Zero};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use wgpu::util::DeviceExt;
@@ -88,7 +89,7 @@ impl Engine {
 			pbr_shaded_map,
 		};
 
-		let voxel_light_map = VoxelTexture::new(&context.device, (256, 256, 256), wgpu::TextureFormat::Rgba8Unorm, "Voxel Light Map (u32)", None);
+		let voxel_light_map = VoxelTexture::new(&context.device, (128, 128, 128), wgpu::TextureFormat::Rgba8Unorm, "Voxel Light Map (u32)", None);
 
 		// Prepare the initial time value used to calculate the delta time since last frame
 		let frame_time = std::time::Instant::now();
@@ -143,20 +144,40 @@ impl Engine {
 	}
 
 	fn build_scene(&mut self, model_files: &HashMap<String, Vec<String>>) {
+		let voxel_camera_transform_x = Transform {
+			// location: cgmath::Point3::new(0., -5., -20.),
+			location: cgmath::Point3::new(15., 10., -5.),
+			// rotation: cgmath::Quaternion::from_angle_y(cgmath::Deg(90.)),
+			rotation: cgmath::Quaternion::look_at(cgmath::Vector3::new(-1., -1., -1.), cgmath::Vector3::new(0., 1., 0.)),
+			scale: cgmath::Vector3::new(1., 1., 1.),
+		};
+		let voxel_camera_transform_y = Transform {
+			location: cgmath::Point3::new(0., -0., -20.),
+			// rotation: cgmath::Quaternion::from_angle_x(cgmath::Deg(90.)),
+			rotation: cgmath::Quaternion::from_angle_x(cgmath::Deg(90.)),
+			scale: cgmath::Vector3::new(1., 1., 1.),
+		};
+		let voxel_camera_transform_z = Transform {
+			location: cgmath::Point3::new(0., -5., -10.),
+			rotation: cgmath::Quaternion::new(1., 0., 0., 0.),
+			scale: cgmath::Vector3::new(1., 1., 1.),
+		};
+
+		let orthographic = OrthographicProjection::new(1, 1, 40.0, 0., 1000.0);
+
 		// Main camera
 		let projection = PerspectiveProjection::new(self.context.surface_configuration.width, self.context.surface_configuration.height, cgmath::Deg(45.0), 0.1, 100.0);
 		let main_camera = self.scene.root.new_child("Main Camera");
 		main_camera.add_camera_component(&self.context, Projection::Perspective(projection));
+		// main_camera.add_camera_component(&self.context, Projection::Orthographic(orthographic));
+		// main_camera.transform = camera_transform;
+		// main_camera.get_cameras_mut()[0].update_transform_and_matrices(&camera_transform, &mut self.context.queue);
 
 		// Voxel camera
-		let orthographic = OrthographicProjection::new(1, 1, 30.0, 0., 100.0);
 		let voxel_camera = self.scene.root.new_child("Voxel Camera");
-		voxel_camera.transform.location = cgmath::Point3::new(0., 0., -0.);
-		voxel_camera.transform.rotation = cgmath::Quaternion::new(1., 0., 0., 0.);
+		voxel_camera.transform = voxel_camera_transform_x;
 		voxel_camera.add_camera_component(&self.context, Projection::Orthographic(orthographic));
-		let voxel_camera_transform = voxel_camera.transform;
-		voxel_camera.get_cameras_mut()[0].update_transform(&voxel_camera_transform);
-		voxel_camera.get_cameras_mut()[0].update_v_p_matrices(&mut self.context.queue);
+		voxel_camera.get_cameras_mut()[0].update_transform_and_matrices(&voxel_camera_transform_x, &mut self.context.queue);
 
 		// Spinning cube representing the light
 		let lamp = self.scene.root.new_child("Lamp Model");
@@ -245,7 +266,7 @@ impl Engine {
 					materials_to_load.push((
 						format!("scene_deferred_{}.material", mesh.name.as_str()),
 						"scene_deferred.wgsl",
-						vec![mesh.map_albedo.clone(), mesh.map_arm.clone(), mesh.map_normal.clone(), Some(String::from("VOXEL_LIGHTMAP"))]
+						vec![mesh.map_albedo.clone(), mesh.map_arm.clone(), mesh.map_normal.clone(), Some(String::from("VOXEL_LIGHTMAP_TEXTURE"))]
 							.into_iter()
 							.flatten()
 							.collect::<Vec<_>>(),
@@ -264,22 +285,22 @@ impl Engine {
 
 		// Shaders
 		let main_camera = self.scene.root.find_descendant("Main Camera").unwrap().get_cameras()[0];
-		let voxel_camera = self.scene.root.find_descendant("Voxel Camera").unwrap().get_cameras()[0];
+		let voxel_camera_x = self.scene.root.find_descendant("Voxel Camera").unwrap().get_cameras()[0];
 
 		let calc_voxel_lightmap_shader = {
 			let camera_matrices = ShaderBinding::Buffer(ShaderBindingBuffer::default());
 			let albedo_map = ShaderBinding::Texture(ShaderBindingTexture::default());
-			let voxel_light_map_binding = {
-				let mut binding_tex = ShaderBindingTexture::default();
-				binding_tex.dimensions = wgpu::TextureViewDimension::D3;
-				ShaderBinding::StorageTexture(binding_tex, wgpu::TextureFormat::Rgba8Unorm)
-			};
+			let voxel_lightmap_binding = ShaderBinding::Buffer(ShaderBindingBuffer {
+				uniform_or_storage: wgpu::BufferBindingType::Storage { read_only: false },
+				visible_in_stages: wgpu::ShaderStages::FRAGMENT,
+				..ShaderBindingBuffer::default()
+			});
 
 			Shader::new(
 				&self.context,
 				assets_path,
 				"calc_voxel_lightmap.wgsl",
-				vec![camera_matrices, albedo_map, voxel_light_map_binding],
+				vec![camera_matrices, albedo_map, voxel_lightmap_binding],
 				PipelineOptions::RenderPipeline(RenderPipelineOptions {
 					out_color_formats: vec![wgpu::TextureFormat::Rgba16Float],
 					depth_format: None,
@@ -306,6 +327,7 @@ impl Engine {
 				assets_path,
 				"scene_deferred.wgsl",
 				vec![albedo_map, arm_map, normal_map, voxel_light_map_binding],
+				// vec![albedo_map, arm_map, normal_map],
 				PipelineOptions::RenderPipeline(RenderPipelineOptions {
 					out_color_formats: vec![
 						wgpu::TextureFormat::Rgba16Float,
@@ -386,21 +408,30 @@ impl Engine {
 		};
 		self.scene.resources.shaders.insert(pass_pbr_shading_shader.name.clone(), pass_pbr_shading_shader);
 
-		// let compute_hdr_measuring_shader = {
-		// 	let pbr_shaded = ShaderBinding::Texture(ShaderBindingTexture {
-		// 		visible_in_stages: wgpu::ShaderStages::COMPUTE,
-		// 		..ShaderBindingTexture::default()
-		// 	});
+		let voxel_texture_generating_shader = {
+			let voxel_lightmap_binding = {
+				let mut binding_tex = ShaderBindingTexture {
+					visible_in_stages: wgpu::ShaderStages::COMPUTE,
+					..ShaderBindingTexture::default()
+				};
+				binding_tex.dimensions = wgpu::TextureViewDimension::D3;
+				ShaderBinding::StorageTexture(binding_tex, wgpu::TextureFormat::Rgba8Unorm)
+			};
+			let voxel_buffer_binding = ShaderBinding::Buffer(ShaderBindingBuffer {
+				uniform_or_storage: wgpu::BufferBindingType::Storage { read_only: false },
+				visible_in_stages: wgpu::ShaderStages::COMPUTE,
+				..ShaderBindingBuffer::default()
+			});
 
-		// 	Shader::new(
-		// 		&self.context,
-		// 		assets_path,
-		// 		"compute_hdr_measuring.wgsl",
-		// 		vec![pbr_shaded],
-		// 		PipelineOptions::ComputePipeline(ComputePipelineOptions {}),
-		// 	)
-		// };
-		// self.scene.resources.shaders.insert(String::from("pass_pbr_shading.wgsl"), compute_hdr_measuring_shader);
+			Shader::new(
+				&self.context,
+				assets_path,
+				"compute_voxel_texture_generating.wgsl",
+				vec![voxel_lightmap_binding, voxel_buffer_binding],
+				PipelineOptions::ComputePipeline(ComputePipelineOptions {}),
+			)
+		};
+		self.scene.resources.shaders.insert(voxel_texture_generating_shader.name.clone(), voxel_texture_generating_shader);
 
 		let pass_hdr_exposure_shader = {
 			let pbr_shaded = ShaderBinding::Texture(ShaderBindingTexture::default());
@@ -434,6 +465,16 @@ impl Engine {
 				wgpu::AddressMode::Repeat,
 			),
 		);
+		self.scene.resources.textures.insert(
+			String::from("VOXEL_CALCULATION_FRAGMENTS_RENDER_RESOLUTION"),
+			Texture::from_dimensions(
+				&self.context.device,
+				(1920, 1920),
+				"VOXEL_CALCULATION_FRAGMENTS_RENDER_RESOLUTION",
+				wgpu::TextureFormat::Rgba16Float,
+				wgpu::AddressMode::Repeat,
+			),
+		);
 
 		for texture_file in textures_to_load {
 			let mut loaded_texture = Texture::load(&self.context.device, &self.context.queue, assets_path, texture_file.0.as_str(), texture_file.1, texture_file.2).unwrap();
@@ -446,6 +487,12 @@ impl Engine {
 			label: Some("SSAO samples buffer"),
 			contents: bytemuck::cast_slice(&crate::ssao::generate_sample_hemisphere()),
 			usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+		});
+		let voxel_storage_buffer = self.context.device.create_buffer(&wgpu::BufferDescriptor {
+			label: Some("Voxel Storage Buffer"),
+			size: 128 * 128 * 128 * 4 * 4,
+			usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+			mapped_at_creation: false,
 		});
 		let material_definitions = [
 			(
@@ -479,11 +526,24 @@ impl Engine {
 				],
 			),
 			(
+				"compute_voxel_texture_generating.material",
+				"compute_voxel_texture_generating.wgsl",
+				vec![
+					MaterialDataBinding::Texture(&self.voxel_light_map.texture),
+					MaterialDataBinding::Buffer(wgpu::BufferBinding {
+						buffer: &voxel_storage_buffer,
+						offset: 0,
+						size: None,
+					}),
+				],
+			),
+			(
 				"pass_hdr_exposure.material",
 				"pass_hdr_exposure.wgsl",
 				vec![MaterialDataBinding::Texture(&self.frame_textures.pbr_shaded_map.texture)],
 			),
 		];
+
 		let combined_materials = materials_to_load
 			.iter()
 			.map(|to_load| {
@@ -494,9 +554,14 @@ impl Engine {
 						.2
 						.iter()
 						.map(|texture_path| match texture_path.as_str() {
-							"VOXEL_LIGHTMAP" => MaterialDataBinding::Texture(&self.voxel_light_map.texture),
+							"VOXEL_LIGHTMAP" => MaterialDataBinding::Buffer(BufferBinding {
+								buffer: &voxel_storage_buffer,
+								offset: 0,
+								size: None,
+							}),
+							"VOXEL_LIGHTMAP_TEXTURE" => MaterialDataBinding::Texture(&self.voxel_light_map.texture),
 							"VOXEL_CAMERA_MATRICES" => MaterialDataBinding::Buffer(BufferBinding {
-								buffer: &voxel_camera.camera_buffer,
+								buffer: &voxel_camera_x.camera_buffer,
 								offset: 0,
 								size: None,
 							}),
@@ -632,10 +697,36 @@ impl Engine {
 				label: String::from("Pass: Calc Voxel Lightmap"),
 				depth_attachment: None,
 				color_attachment_types: vec![
-					&self.frame_textures.world_space_fragment_location.texture.view, // Ignored, but wgpu seems to need at least one fragment output
+					// &self.frame_textures.voxel_calculation_fragments_render_resolution.texture.view, // TODO: Update comment. Ignored, but wgpu seems to need at least one fragment output
+					&self.scene.resources.textures.get("VOXEL_CALCULATION_FRAGMENTS_RENDER_RESOLUTION").unwrap().view,
 				],
 				blit_material: None,
 				clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
+			}),
+			Pass::RenderPass(RenderPass {
+				label: String::from("Pass: Calc Voxel Lightmap"),
+				depth_attachment: None,
+				color_attachment_types: vec![
+					// &self.frame_textures.voxel_calculation_fragments_render_resolution.texture.view, // TODO: Update comment. Ignored, but wgpu seems to need at least one fragment output
+					&self.scene.resources.textures.get("VOXEL_CALCULATION_FRAGMENTS_RENDER_RESOLUTION").unwrap().view,
+				],
+				blit_material: None,
+				clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
+			}),
+			Pass::RenderPass(RenderPass {
+				label: String::from("Pass: Calc Voxel Lightmap"),
+				depth_attachment: None,
+				color_attachment_types: vec![
+					// &self.frame_textures.voxel_calculation_fragments_render_resolution.texture.view, // TODO: Update comment. Ignored, but wgpu seems to need at least one fragment output
+					&self.scene.resources.textures.get("VOXEL_CALCULATION_FRAGMENTS_RENDER_RESOLUTION").unwrap().view,
+				],
+				blit_material: None,
+				clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
+			}),
+			Pass::ComputePass(ComputePass {
+				label: String::from("Pass: Voxel Texture Generating"),
+				material: String::from("compute_voxel_texture_generating.material"),
+				work_groups_size: (128, 128, 128),
 			}),
 			Pass::RenderPass(RenderPass {
 				label: String::from("Scene: Deferred"),
@@ -670,10 +761,6 @@ impl Engine {
 				blit_material: Some(String::from("pass_pbr_shading.material")),
 				clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
 			}),
-			// Pass::ComputePass(ComputePass {
-			// 	label: String::from("Pass: HDR Measuring"),
-			// 	material: String::from("pass_pbr_shading.material"),
-			// }),
 			Pass::RenderPass(RenderPass {
 				label: String::from("Pass: HDR Exposure"),
 				depth_attachment: None,
@@ -714,12 +801,29 @@ impl Engine {
 						depth_stencil_attachment,
 					});
 
-					match pass.blit_material {
-						None => self.draw_scene(render_pass, &pass.label),
-						Some(material_name) => self.draw_quad(render_pass, material_name.as_str()),
+					if pass.label == "Pass: Calc Voxel Lightmap" {
+						self.draw_scene(render_pass, &pass.label);
+					} else {
+						match pass.blit_material {
+							None => self.draw_scene(render_pass, &pass.label),
+							Some(material_name) => self.draw_quad(render_pass, material_name.as_str()),
+						}
 					}
 				}
-				Pass::ComputePass(pass) => {}
+				Pass::ComputePass(pass) => {
+					let material = &self.scene.resources.materials.get(&pass.material).unwrap();
+					let shader = &self.scene.resources.shaders[material.shader_id];
+					let pipeline = match &shader.pipeline {
+						crate::shader::PipelineType::RenderPipeline(_) => continue,
+						crate::shader::PipelineType::ComputePipeline(compute_pipeline) => compute_pipeline,
+					};
+					let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some(&pass.label) });
+					compute_pass.set_pipeline(&pipeline);
+					compute_pass.set_bind_group(0, &material.bind_group, &[]);
+					// compute_pass.insert_debug_marker("Running the compute shader");
+					let (x, y, z) = pass.work_groups_size;
+					compute_pass.dispatch(x, y, z);
+				}
 			}
 		}
 

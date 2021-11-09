@@ -97,14 +97,20 @@ fn main(in: VertexOutput) -> FragmentOutput {
 	var tangent_space_normal = textureSample(t_normal, s_normal, uv).xyz * 2. - 1.;
 	world_space_normal = from_tangent_space * normalize(mix(vec3<f32>(0., 1., 0.), tangent_space_normal, NORMAL_MAP_STRENGTH));
 
-	// Lightmap Sample (no voxel cone tracing)
+	let world_position = in.world_space_fragment_location;
+	let scene_offset = vec3<f32>(0., 5., 0.);
 	let scene_dimensions = vec3<f32>(30., 14., 20.);
-	let lightmap_sample = textureSample(t_voxel_lightmap, s_voxel_lightmap, in.world_space_fragment_location / scene_dimensions);
+	let half_scene_dimensions = scene_dimensions * 0.5;
+	var normalized_position = (world_position - scene_offset) / half_scene_dimensions; // -1 to 1
+	normalized_position = normalized_position + vec3<f32>(1.); // 0 to 2
+	normalized_position = normalized_position * 0.5; // 0 to 1
+	let lightmap_sample = textureSample(t_voxel_lightmap, s_voxel_lightmap, normalized_position);
 
 	return FragmentOutput(
 		vec4<f32>(in.world_space_fragment_location, 1.),
 		vec4<f32>(world_space_normal, 1.),
-		lightmap_sample,//textureSample(t_albedo, s_albedo, uv).rgba,
+		lightmap_sample,
+		// textureSample(t_albedo, s_albedo, uv).rgba,
 		textureSample(t_arm, s_arm, uv).rgba,
 	);
 }
