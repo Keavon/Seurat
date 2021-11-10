@@ -1,14 +1,10 @@
 use std::borrow::Cow;
 
-use crate::{
-	context::Context,
-	material::{Material, MaterialDataBinding},
-	scene::LoadedResources,
-	texture::Texture,
-};
+use crate::{context::Context, texture::Texture};
 
 pub struct VoxelTexture {
 	pub texture: Texture,
+	pub storage_texture_view: wgpu::TextureView,
 	pub size: wgpu::Extent3d,
 	pub format: wgpu::TextureFormat,
 	pub label: String,
@@ -25,7 +21,7 @@ impl VoxelTexture {
 		let texture_descriptor = wgpu::TextureDescriptor {
 			label: Some(label),
 			size,
-			mip_level_count: 1,
+			mip_level_count: size.max_mips(),
 			sample_count: 1,
 			dimension: wgpu::TextureDimension::D3,
 			format,
@@ -47,8 +43,20 @@ impl VoxelTexture {
 			..Default::default()
 		});
 
+		let storage_texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
+			label: Some("mip"),
+			format: None,
+			dimension: None,
+			aspect: wgpu::TextureAspect::All,
+			base_mip_level: 0,
+			mip_level_count: std::num::NonZeroU32::new(1),
+			base_array_layer: 0,
+			array_layer_count: None,
+		});
+
 		Self {
 			texture: Texture { texture, view, sampler, format, size },
+			storage_texture_view,
 			size,
 			format,
 			label: String::from(label),
@@ -56,7 +64,7 @@ impl VoxelTexture {
 		}
 	}
 
-	pub fn generate_mipmaps(&mut self, resources: &LoadedResources, context: &Context) {
+	pub fn generate_mipmaps(&mut self, context: &Context) {
 		let mut encoder = context.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("Render Encoder") });
 
 		let shader = context.device.create_shader_module(&wgpu::ShaderModuleDescriptor {

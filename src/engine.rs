@@ -529,7 +529,7 @@ impl Engine {
 				"compute_voxel_texture_generating.material",
 				"compute_voxel_texture_generating.wgsl",
 				vec![
-					MaterialDataBinding::Texture(&self.voxel_light_map.texture),
+					MaterialDataBinding::StorageTexture(&self.voxel_light_map.texture, Some(&self.voxel_light_map.storage_texture_view)),
 					MaterialDataBinding::Buffer(wgpu::BufferBinding {
 						buffer: &voxel_storage_buffer,
 						offset: 0,
@@ -800,6 +800,10 @@ impl Engine {
 						color_attachments: color_attachments.as_slice(),
 						depth_stencil_attachment,
 					});
+
+					if pass.label == "Scene: Deferred" {
+						self.voxel_light_map.generate_mipmaps(&self.context);
+					}
 
 					if pass.label == "Pass: Calc Voxel Lightmap" {
 						self.draw_scene(render_pass, &pass.label);

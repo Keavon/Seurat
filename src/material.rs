@@ -26,7 +26,7 @@ impl Material {
 						.get(index)
 						.map(|material_data_binding| match material_data_binding {
 							MaterialDataBinding::Buffer(buffer) => Some(buffer.clone()),
-							MaterialDataBinding::Texture(_) | &MaterialDataBinding::TextureName(_) => None,
+							MaterialDataBinding::Texture(_) | &MaterialDataBinding::TextureName(_) | MaterialDataBinding::StorageTexture(_, _) => None,
 						})
 						.flatten()
 						.unwrap_or_else(|| panic!("Provided binding data for material '{}' does not match the shader definition", material_name));
@@ -43,8 +43,9 @@ impl Material {
 					let texture_data = data_bindings
 						.get(index)
 						.map(|material_data_binding| match material_data_binding {
-							&MaterialDataBinding::Texture(texture) => Some(texture),
-							MaterialDataBinding::TextureName(texture) => Some(&resources.textures[*texture]),
+							&MaterialDataBinding::Texture(texture) => Some((&texture.sampler, &texture.view)),
+							&MaterialDataBinding::StorageTexture(texture, view) => Some((&texture.sampler, view.unwrap_or(&texture.view))),
+							MaterialDataBinding::TextureName(texture) => Some((&resources.textures[*texture].sampler, &resources.textures[*texture].view)),
 							MaterialDataBinding::Buffer(_) => None,
 						})
 						.flatten()
@@ -53,11 +54,11 @@ impl Material {
 					vec![
 						wgpu::BindGroupEntry {
 							binding,
-							resource: wgpu::BindingResource::TextureView(&texture_data.view),
+							resource: wgpu::BindingResource::TextureView(&texture_data.1),
 						},
 						wgpu::BindGroupEntry {
 							binding: binding + 1,
-							resource: wgpu::BindingResource::Sampler(&texture_data.sampler),
+							resource: wgpu::BindingResource::Sampler(&texture_data.0),
 						},
 					]
 				}
@@ -68,19 +69,18 @@ impl Material {
 					let texture_data = data_bindings
 						.get(index)
 						.map(|material_data_binding| match material_data_binding {
-							&MaterialDataBinding::Texture(texture) => Some(texture),
-							MaterialDataBinding::TextureName(texture) => Some(&resources.textures[*texture]),
+							&MaterialDataBinding::Texture(texture) => Some((&texture.sampler, &texture.view)),
+							&MaterialDataBinding::StorageTexture(texture, view) => Some((&texture.sampler, view.unwrap_or(&texture.view))),
+							MaterialDataBinding::TextureName(texture) => Some((&resources.textures[*texture].sampler, &resources.textures[*texture].view)),
 							MaterialDataBinding::Buffer(_) => None,
 						})
 						.flatten()
 						.unwrap_or_else(|| panic!("Provided binding data for material '{}' does not match the shader definition", material_name));
 
-					vec![
-						wgpu::BindGroupEntry {
-							binding,
-							resource: wgpu::BindingResource::TextureView(&texture_data.view),
-						},
-					]
+					vec![wgpu::BindGroupEntry {
+						binding,
+						resource: wgpu::BindingResource::TextureView(&texture_data.1),
+					}]
 				}
 			})
 			.collect::<Vec<wgpu::BindGroupEntry>>();
@@ -102,5 +102,6 @@ impl Material {
 pub enum MaterialDataBinding<'a> {
 	Buffer(wgpu::BufferBinding<'a>),
 	Texture(&'a Texture),
+	StorageTexture(&'a Texture, Option<&'a wgpu::TextureView>),
 	TextureName(&'a str),
 }
