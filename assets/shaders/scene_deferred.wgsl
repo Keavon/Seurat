@@ -104,7 +104,8 @@ fn main(in: VertexOutput) -> FragmentOutput {
 	var normalized_position = (world_position - scene_offset) / half_scene_dimensions; // -1 to 1
 	normalized_position = normalized_position + vec3<f32>(1.); // 0 to 2
 	normalized_position = normalized_position * 0.5; // 0 to 1
-	let lightmap_sample = textureSample(t_voxel_lightmap, s_voxel_lightmap, normalized_position);
+
+	let lightmap_sample = textureSampleLevel(t_voxel_lightmap, s_voxel_lightmap, normalized_position, 1.);
 
 	return FragmentOutput(
 		vec4<f32>(in.world_space_fragment_location, 1.),
