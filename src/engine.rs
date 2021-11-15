@@ -2,6 +2,7 @@ use crate::camera::{Camera, OrthographicProjection, PerspectiveProjection, Proje
 use crate::camera_controller::CameraController;
 use crate::component::Component;
 use crate::context::Context;
+use crate::debug_buffer::DebugBuffer;
 use crate::frame_texture::{FrameTexture, FrameTextures};
 use crate::instance::Instance;
 use crate::light::SceneLighting;
@@ -32,6 +33,7 @@ pub struct Engine {
 	active_camera: String,
 	camera_controller: CameraController,
 	scene_lighting: SceneLighting,
+	debug_buffer: DebugBuffer,
 }
 
 impl Engine {
@@ -101,6 +103,9 @@ impl Engine {
 		// Lights
 		let scene_lighting = SceneLighting::new(&context);
 
+		// Debugging
+		let debug_buffer = DebugBuffer::new(&context);
+
 		// Scene
 		let scene = Scene::new();
 
@@ -113,6 +118,7 @@ impl Engine {
 			active_camera,
 			camera_controller,
 			scene_lighting,
+			debug_buffer,
 		}
 	}
 
@@ -307,6 +313,7 @@ impl Engine {
 					use_instances: true,
 					scene_camera: None,
 					scene_lighting: Some(&self.scene_lighting),
+					scene_debug_buffer: None,
 				}),
 			)
 		};
@@ -339,6 +346,7 @@ impl Engine {
 					use_instances: true,
 					scene_camera: Some(main_camera),
 					scene_lighting: Some(&self.scene_lighting),
+					scene_debug_buffer: Some(&self.debug_buffer),
 				}),
 			)
 		};
@@ -361,6 +369,7 @@ impl Engine {
 					use_instances: false,
 					scene_camera: Some(main_camera),
 					scene_lighting: None,
+					scene_debug_buffer: None,
 				}),
 			)
 		};
@@ -380,6 +389,7 @@ impl Engine {
 					use_instances: false,
 					scene_camera: None,
 					scene_lighting: None,
+					scene_debug_buffer: None,
 				}),
 			)
 		};
@@ -403,6 +413,7 @@ impl Engine {
 					use_instances: false,
 					scene_camera: Some(main_camera),
 					scene_lighting: Some(&self.scene_lighting),
+					scene_debug_buffer: None,
 				}),
 			)
 		};
@@ -447,6 +458,7 @@ impl Engine {
 					use_instances: false,
 					scene_camera: None,
 					scene_lighting: None,
+					scene_debug_buffer: None,
 				}),
 			)
 		};
@@ -600,6 +612,7 @@ impl Engine {
 			}) => {
 				// self.scene.find_entity_mut(self.active_camera.as_str()).unwrap().get_cameras_mut()[0]
 				self.camera_controller.process_keyboard(*key, *state);
+				self.debug_buffer.process_keyboard(*key, *state);
 			}
 			// Scroll wheel movement
 			DeviceEvent::MouseWheel { delta, .. } => {
@@ -681,6 +694,9 @@ impl Engine {
 		for model in &mut lamp_model.get_models_mut() {
 			model.instances.transform_single_instance(location, rotation, scale, &self.context.device);
 		}
+
+		// Debugging
+		self.debug_buffer.update(delta_time, &mut self.context.queue);
 
 		// Call update() on all entity behaviors
 		self.scene.root.update_behaviors_of_descendants();
@@ -882,6 +898,10 @@ impl Engine {
 						render_pass.set_bind_group(index, &self.scene_lighting.light_bind_group, &[]);
 						index += 1;
 					}
+					if shader.includes_debugging {
+						render_pass.set_bind_group(index, &self.debug_buffer.debug_bind_group, &[]);
+						index += 1;
+					}
 					render_pass.set_bind_group(index, &material.bind_group, &[]);
 
 					render_pass.draw_indexed(0..mesh.index_count, 0, instances_range);
@@ -913,6 +933,10 @@ impl Engine {
 		}
 		if shader.includes_lighting {
 			render_pass.set_bind_group(index, &self.scene_lighting.light_bind_group, &[]);
+			index += 1;
+		}
+		if shader.includes_debugging {
+			render_pass.set_bind_group(index, &self.debug_buffer.debug_bind_group, &[]);
 			index += 1;
 		}
 		render_pass.set_bind_group(index, &material.bind_group, &[]);

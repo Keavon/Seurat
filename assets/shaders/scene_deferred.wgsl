@@ -6,18 +6,22 @@
 	location: vec3<f32>;
 	color: vec3<f32>;
 };
+[[block]] struct Debug {
+	values: vec4<f32>;
+};
 
 // Uniforms
 [[group(0), binding(0)]] var<uniform> camera: Camera;
 [[group(1), binding(0)]] var<uniform> light: Light;
-[[group(2), binding(0)]] var t_albedo: texture_2d<f32>;
-[[group(2), binding(1)]] var s_albedo: sampler;
-[[group(2), binding(2)]] var t_arm: texture_2d<f32>;
-[[group(2), binding(3)]] var s_arm: sampler;
-[[group(2), binding(4)]] var t_normal: texture_2d<f32>;
-[[group(2), binding(5)]] var s_normal: sampler;
-[[group(2), binding(6)]] var t_voxel_lightmap: texture_3d<f32>;
-[[group(2), binding(7)]] var s_voxel_lightmap: sampler;
+[[group(2), binding(0)]] var<uniform> debug: Debug;
+[[group(3), binding(0)]] var t_albedo: texture_2d<f32>;
+[[group(3), binding(1)]] var s_albedo: sampler;
+[[group(3), binding(2)]] var t_arm: texture_2d<f32>;
+[[group(3), binding(3)]] var s_arm: sampler;
+[[group(3), binding(4)]] var t_normal: texture_2d<f32>;
+[[group(3), binding(5)]] var s_normal: sampler;
+[[group(3), binding(6)]] var t_voxel_lightmap: texture_3d<f32>;
+[[group(3), binding(7)]] var s_voxel_lightmap: sampler;
 
 // Attributes
 struct VertexInput {
@@ -105,7 +109,7 @@ fn main(in: VertexOutput) -> FragmentOutput {
 	normalized_position = normalized_position + vec3<f32>(1.); // 0 to 2
 	normalized_position = normalized_position * 0.5; // 0 to 1
 
-	let lightmap_sample = textureSampleLevel(t_voxel_lightmap, s_voxel_lightmap, normalized_position, 1.);
+	let lightmap_sample = textureSampleLevel(t_voxel_lightmap, s_voxel_lightmap, normalized_position, debug.values[0]);
 
 	return FragmentOutput(
 		vec4<f32>(in.world_space_fragment_location, 1.),

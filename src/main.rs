@@ -3,6 +3,7 @@ mod camera;
 mod camera_controller;
 mod component;
 mod context;
+mod debug_buffer;
 mod engine;
 mod entity;
 mod frame_texture;

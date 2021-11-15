@@ -1,5 +1,6 @@
 use crate::camera::Camera;
 use crate::context::Context;
+use crate::debug_buffer::DebugBuffer;
 use crate::instance::InstanceRaw;
 use crate::light::SceneLighting;
 use crate::mesh::{ModelVertex, Vertex};
@@ -15,6 +16,7 @@ pub struct Shader {
 	pub shader_bindings: Vec<ShaderBinding>,
 	pub includes_camera: bool,
 	pub includes_lighting: bool,
+	pub includes_debugging: bool,
 }
 
 impl Shader {
@@ -27,17 +29,18 @@ impl Shader {
 			label: Some(format!("Shader \"{}\" bind group layout", file).as_str()),
 		});
 
-		let (camera_layout, lighting_layout) = if let PipelineOptions::RenderPipeline(render_options) = &options {
+		let (camera_layout, lighting_layout, debug_layout) = if let PipelineOptions::RenderPipeline(render_options) = &options {
 			let camera_layout = render_options.scene_camera.map(|camera| &camera.camera_bind_group_layout);
 			let lighting_layout = render_options.scene_lighting.map(|lighting| &lighting.light_bind_group_layout);
+			let debug_layout = render_options.scene_debug_buffer.map(|debug_buffer| &debug_buffer.debug_bind_group_layout);
 
-			(camera_layout, lighting_layout)
+			(camera_layout, lighting_layout, debug_layout)
 		} else {
-			(None, None)
+			(None, None, None)
 		};
 
 		let layout = Some(&bind_group_layout);
-		let layouts = vec![camera_layout, lighting_layout, layout].into_iter().flatten().collect::<Vec<_>>();
+		let layouts = vec![camera_layout, lighting_layout, debug_layout, layout].into_iter().flatten().collect::<Vec<_>>();
 
 		let bind_group_layouts = layouts.as_slice();
 		let pipeline_layout = context.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -55,12 +58,13 @@ impl Shader {
 			source: wgpu::ShaderSource::Wgsl(shader_code.into()),
 		};
 
-		let (mut includes_camera, mut includes_lighting) = (false, false);
+		let (mut includes_camera, mut includes_lighting, mut includes_debugging) = (false, false, false);
 
 		let pipeline = match options {
 			PipelineOptions::RenderPipeline(render_options) => {
 				includes_camera = render_options.scene_camera.is_some();
 				includes_lighting = render_options.scene_lighting.is_some();
+				includes_debugging = render_options.scene_debug_buffer.is_some();
 
 				let vertex_layouts = if render_options.use_instances {
 					vec![ModelVertex::layout(), InstanceRaw::layout()]
@@ -95,6 +99,7 @@ impl Shader {
 			shader_bindings: in_shader_bindings,
 			includes_camera,
 			includes_lighting,
+			includes_debugging,
 		}
 	}
 }
@@ -253,6 +258,7 @@ pub struct RenderPipelineOptions<'a> {
 	pub use_instances: bool,
 	pub scene_camera: Option<&'a Camera>,
 	pub scene_lighting: Option<&'a SceneLighting>,
+	pub scene_debug_buffer: Option<&'a DebugBuffer>,
 }
 
 pub struct ComputePipelineOptions {}
