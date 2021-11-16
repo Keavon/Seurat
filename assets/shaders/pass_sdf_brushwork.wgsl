@@ -1,5 +1,9 @@
+let THICKNESS = 100.;
+let HARDNESS = 0.;
+
+let SAMPLES = 256;
 [[block]] struct TraceData {
-	points: array<i32, 256>;
+	points: array<f32, 256>;
 };
 
 // Uniforms
@@ -38,12 +42,9 @@ fn sdf_line_segment(point: vec2<f32>, end_a: vec2<f32>, end_b: vec2<f32>) -> f32
 // Fragment shader
 [[stage(fragment)]]
 fn main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
-	let THICKNESS = 60.;
-	let HARDNESS = 0.;
-
 	var min_distance = 999999.;
 
-	for (var i = 0; i < 256 - 2; i = i + 2) {
+	for (var i = 0; i < (SAMPLES - 1) * 2; i = i + 2) {
 		let point_a = vec2<f32>(f32(trace.points[i]), f32(trace.points[i + 1]));
 		let point_b = vec2<f32>(f32(trace.points[i + 2]), f32(trace.points[i + 3]));
 		var distance = sdf_line_segment(in.position.xy, point_a, point_b); //(distance(point, in.position.xy) - THICKNESS) / (1. + FEATHER);

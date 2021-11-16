@@ -44,7 +44,15 @@ impl Engine {
 		};
 
 		// let trace = [30, 90, 1000, 300, 500, 400, 550, 450];
-		let trace_vec = (0..128).flat_map(|i| [i + 400, (f32::sin(i as f32 / 20.) * 128.) as i32 + 400]).collect::<Vec<_>>();
+		const AMPLITUDE: f32 = 150.;
+		const WIDTH_SCALE: f32 = 1.;
+		const SAMPLES: usize = 128;
+
+		let mut trace_vec = (0..SAMPLES)
+			.flat_map(|i| [i as f32 * WIDTH_SCALE + 400., f32::sin(i as f32 / SAMPLES as f32 * 2. * std::f32::consts::PI) * AMPLITUDE + 400.])
+			.collect::<Vec<_>>();
+		trace_vec.extend((0..SAMPLES).flat_map(|i| [i as f32 * WIDTH_SCALE + 400., f32::sin(i as f32 / SAMPLES as f32 * 2. * std::f32::consts::PI) * -AMPLITUDE + 400.]));
+
 		let trace = trace_vec.as_slice();
 		let trace_buffer = context.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
 			label: Some("Trace Buffer"),
