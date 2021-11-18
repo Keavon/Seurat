@@ -28,6 +28,7 @@ pub struct Engine {
 	camera_controller: CameraController,
 	scene_lighting: SceneLighting,
 	trace_buffer: wgpu::Buffer,
+	trace_length: u32,
 }
 
 impl Engine {
@@ -44,21 +45,23 @@ impl Engine {
 		};
 
 		// let trace = [30, 90, 1000, 300, 500, 400, 550, 450];
-		const AMPLITUDE: f32 = 150.;
-		const WIDTH_SCALE: f32 = 1.;
-		const SAMPLES: usize = 128;
+		// const AMPLITUDE: f32 = 150.;
+		// const WIDTH_SCALE: f32 = 1.;
+		// const SAMPLES: usize = 128;
 
-		let mut trace_vec = (0..SAMPLES)
-			.flat_map(|i| [i as f32 * WIDTH_SCALE + 400., f32::sin(i as f32 / SAMPLES as f32 * 2. * std::f32::consts::PI) * AMPLITUDE + 400.])
-			.collect::<Vec<_>>();
-		trace_vec.extend((0..SAMPLES).flat_map(|i| [i as f32 * WIDTH_SCALE + 400., f32::sin(i as f32 / SAMPLES as f32 * 2. * std::f32::consts::PI) * -AMPLITUDE + 400.]));
+		// let mut trace_vec = (0..SAMPLES)
+		// 	.flat_map(|i| [i as f32 * WIDTH_SCALE + 400., f32::sin(i as f32 / SAMPLES as f32 * 2. * std::f32::consts::PI) * AMPLITUDE + 400.])
+		// 	.collect::<Vec<_>>();
+		// trace_vec.extend((0..SAMPLES).flat_map(|i| [i as f32 * WIDTH_SCALE + 400., f32::sin(i as f32 / SAMPLES as f32 * 2. * std::f32::consts::PI) * -AMPLITUDE + 400.]));
 
-		let trace = trace_vec.as_slice();
-		let trace_buffer = context.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+		// let trace = trace_vec.as_slice();
+		let trace_buffer = context.device.create_buffer(&wgpu::BufferDescriptor {
 			label: Some("Trace Buffer"),
-			contents: bytemuck::cast_slice(trace),
-			usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+			size: 16777216,
+			mapped_at_creation: false,
+			usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
 		});
+		context.queue.write_buffer(&trace_buffer, 0, bytemuck::cast_slice(&[0_u32]));
 
 		// Prepare the initial time value used to calculate the delta time since last frame
 		let frame_time = std::time::Instant::now();
@@ -82,6 +85,7 @@ impl Engine {
 			camera_controller,
 			scene_lighting,
 			trace_buffer,
+			trace_length: 0, // First 4 bytes is length (u32)
 		}
 	}
 
@@ -93,7 +97,10 @@ impl Engine {
 	fn load_resources(&mut self, assets_path: &Path) {
 		// Shaders
 		let pass_sdf_brushwork_shader = {
-			let brush_trace = ShaderBinding::Buffer(ShaderBindingBuffer::default());
+			let brush_trace = ShaderBinding::Buffer(ShaderBindingBuffer {
+				uniform_or_storage: wgpu::BufferBindingType::Storage { read_only: true },
+				..ShaderBindingBuffer::default()
+			});
 
 			Shader::new(
 				&self.context,
@@ -200,7 +207,7 @@ impl Engine {
 			// Mouse movement
 			DeviceEvent::MouseMotion { delta } => {
 				// self.scene.find_entity_mut(self.active_camera.as_str()).unwrap().get_cameras_mut()[0]
-				self.camera_controller.process_mouse(delta.0, delta.1);
+				// self.camera_controller.process_mouse(delta.0, delta.1);
 			}
 			_ => {}
 		}
@@ -227,8 +234,22 @@ impl Engine {
 			WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
 				self.resize(**new_inner_size);
 			}
+			// Mouse input
+			WindowEvent::CursorMoved { position, .. } => {
+				self.mouse_moved(position.x as f32, position.y as f32);
+			}
 			_ => {}
 		}
+	}
+
+	fn mouse_moved(&mut self, x: f32, y: f32) {
+		let coordinates_size = std::mem::size_of::<[f32; 2]>() as u64;
+
+		self.context.queue.write_buffer(&self.trace_buffer, 0, bytemuck::cast_slice(&[self.trace_length]));
+		self.context
+			.queue
+			.write_buffer(&self.trace_buffer, self.trace_length as u64 * coordinates_size + 4, bytemuck::cast_slice(&[x, y]));
+		self.trace_length += 1;
 	}
 
 	pub fn draw_frame(&mut self, window: &Window, control_flow: &mut ControlFlow) {

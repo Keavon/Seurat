@@ -3,13 +3,14 @@ let HARDNESS = 0.;
 
 let SAMPLES = 256;
 [[block]] struct TraceData {
-	points: array<f32, 256>;
+	length: u32;
+	points: array<f32>;
 };
 
 // Uniforms
 // [[group(0), binding(0)]] var t_frame: texture_2d<f32>;
 // [[group(0), binding(1)]] var s_frame: sampler;
-[[group(0), binding(0)]] var<uniform> trace: TraceData;
+[[group(0), binding(0)]] var<storage, read> trace: TraceData;
 
 // Attributes
 struct VertexInput {
@@ -44,9 +45,9 @@ fn sdf_line_segment(point: vec2<f32>, end_a: vec2<f32>, end_b: vec2<f32>) -> f32
 fn main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
 	var min_distance = 999999.;
 
-	for (var i = 0; i < (SAMPLES - 1) * 2; i = i + 2) {
-		let point_a = vec2<f32>(f32(trace.points[i]), f32(trace.points[i + 1]));
-		let point_b = vec2<f32>(f32(trace.points[i + 2]), f32(trace.points[i + 3]));
+	for (var i = 0u; i < trace.length * 2u; i = i + 2u) {
+		let point_a = vec2<f32>(f32(trace.points[i]), f32(trace.points[i + 1u]));
+		let point_b = vec2<f32>(f32(trace.points[i + 2u]), f32(trace.points[i + 3u]));
 		var distance = sdf_line_segment(in.position.xy, point_a, point_b); //(distance(point, in.position.xy) - THICKNESS) / (1. + FEATHER);
 		let feather = THICKNESS * (100. - HARDNESS) / 100.;
 		let stroke = THICKNESS - feather;
