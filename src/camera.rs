@@ -1,6 +1,6 @@
 use std::io::Read;
 
-use cgmath::{EuclideanSpace, Euler, InnerSpace, Matrix4, Point3, Rad, SquareMatrix, Vector3};
+use cgmath::{EuclideanSpace, Euler, InnerSpace, Matrix, Matrix4, Point3, Rad, SquareMatrix, Vector3};
 use wgpu::util::DeviceExt;
 use wgpu::{BindGroup, BindGroupLayout, Buffer};
 
@@ -90,11 +90,12 @@ impl Camera {
 	}
 
 	pub fn update_v_p_matrices(&mut self, queue: &mut wgpu::Queue) {
-		self.camera_uniform.v_matrix = Self::calculate_v_matrix(self.location, self.pitch, self.yaw).into();
-		self.camera_uniform.p_matrix = match &self.projection {
-			Projection::Perspective(p) => p.p_matrix().into(),
-			Projection::Orthographic(o) => o.p_matrix().into(),
+		let v = Self::calculate_v_matrix(self.location, self.pitch, self.yaw);
+		let p = match &self.projection {
+			Projection::Perspective(p) => p.p_matrix(),
+			Projection::Orthographic(o) => o.p_matrix(),
 		};
+		self.camera_uniform = CameraUniform::from_vp(v, p);
 
 		queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera_uniform]));
 	}
@@ -107,11 +108,13 @@ impl Camera {
 		self.update_transform(transform);
 		let translation = cgmath::Vector3::new(transform.location.x as f32, transform.location.y as f32, transform.location.z as f32);
 		let rotation = cgmath::Quaternion::new(transform.rotation.s as f32, transform.rotation.v.x as f32, transform.rotation.v.y as f32, transform.rotation.v.z as f32);
-		self.camera_uniform.v_matrix = (cgmath::Matrix4::from_translation(translation) * cgmath::Matrix4::from(rotation)).into();
-		self.camera_uniform.p_matrix = match &self.projection {
-			Projection::Perspective(p) => p.p_matrix().into(),
-			Projection::Orthographic(o) => o.p_matrix().into(),
+
+		let v = cgmath::Matrix4::from_translation(translation) * cgmath::Matrix4::from(rotation);
+		let p = match &self.projection {
+			Projection::Perspective(p) => p.p_matrix(),
+			Projection::Orthographic(o) => o.p_matrix(),
 		};
+		self.camera_uniform = CameraUniform::from_vp(v, p);
 
 		queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera_uniform]));
 	}
@@ -126,13 +129,21 @@ pub struct CameraUniform {
 	// to convert the Matrix4 into a 4x4 f32 array
 	v_matrix: [[f32; 4]; 4],
 	p_matrix: [[f32; 4]; 4],
+	inv_v_matrix: [[f32; 4]; 4],
+	inv_p_matrix: [[f32; 4]; 4],
 }
 
 impl CameraUniform {
 	pub fn new() -> Self {
+		Self::from_vp(cgmath::Matrix4::identity(), cgmath::Matrix4::identity())
+	}
+
+	pub fn from_vp(v: cgmath::Matrix4<f32>, p: cgmath::Matrix4<f32>) -> Self {
 		Self {
-			v_matrix: cgmath::Matrix4::from_translation(Vector3::new(0., 0., 0.)).into(),
-			p_matrix: cgmath::Matrix4::identity().into(),
+			v_matrix: v.into(),
+			p_matrix: p.into(),
+			inv_v_matrix: cgmath::Matrix4::invert(&v).unwrap().into(),
+			inv_p_matrix: cgmath::Matrix4::invert(&p).unwrap().into(),
 		}
 	}
 }

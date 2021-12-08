@@ -1,6 +1,8 @@
 [[block]] struct Camera {
 	v_matrix: mat4x4<f32>;
 	p_matrix: mat4x4<f32>;
+	inv_v_matrix: mat4x4<f32>;
+	inv_p_matrix: mat4x4<f32>;
 };
 [[block]] struct Light {
 	location: vec3<f32>;
@@ -48,10 +50,9 @@ struct VertexOutput {
 
 // Frames
 struct FragmentOutput {
-	[[location(0)]] world_space_fragment_location: vec4<f32>;
-	[[location(1)]] world_space_normal: vec4<f32>;
-	[[location(2)]] world_space_albedo: vec4<f32>;
-	[[location(3)]] world_space_arm: vec4<f32>;
+	[[location(0)]] world_space_normal: vec4<f32>;
+	[[location(1)]] world_space_albedo: vec4<f32>;
+	[[location(2)]] world_space_arm: vec4<f32>;
 };
 
 // Vertex shader
@@ -112,10 +113,9 @@ fn main(in: VertexOutput) -> FragmentOutput {
 	let lightmap_sample = textureSampleLevel(t_voxel_lightmap, s_voxel_lightmap, normalized_position, debug.values[0]);
 
 	return FragmentOutput(
-		vec4<f32>(in.world_space_fragment_location, 1.),
 		vec4<f32>(world_space_normal, 1.),
-		lightmap_sample,
-		// textureSample(t_albedo, s_albedo, uv).rgba,
+		// lightmap_sample,
+		textureSample(t_albedo, s_albedo, uv).rgba,
 		textureSample(t_arm, s_arm, uv).rgba,
 	);
 }

@@ -52,7 +52,6 @@ impl FrameTexture {
 
 pub struct FrameTextures {
 	pub z_buffer: FrameTexture,
-	pub world_space_fragment_location: FrameTexture,
 	pub world_space_normal: FrameTexture,
 	pub albedo_map: FrameTexture,
 	pub arm_map: FrameTexture,
@@ -64,7 +63,6 @@ pub struct FrameTextures {
 impl FrameTextures {
 	pub fn recreate_all(&mut self, device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) {
 		self.z_buffer.recreate(device, config);
-		self.world_space_fragment_location.recreate(device, config);
 		self.world_space_normal.recreate(device, config);
 		self.albedo_map.recreate(device, config);
 		self.arm_map.recreate(device, config);

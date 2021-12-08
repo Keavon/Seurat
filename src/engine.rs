@@ -1,4 +1,4 @@
-use crate::camera::{Camera, OrthographicProjection, PerspectiveProjection, Projection};
+use crate::camera::{OrthographicProjection, PerspectiveProjection, Projection};
 use crate::camera_controller::CameraController;
 use crate::component::Component;
 use crate::context::Context;
@@ -6,7 +6,7 @@ use crate::debug_buffer::DebugBuffer;
 use crate::frame_texture::{FrameTexture, FrameTextures};
 use crate::instance::Instance;
 use crate::light::SceneLighting;
-use crate::material::{self, Material, MaterialDataBinding};
+use crate::material::{Material, MaterialDataBinding};
 use crate::mesh::Mesh;
 use crate::model::Model;
 use crate::pass::{ComputePass, Pass, RenderPass};
@@ -51,13 +51,6 @@ impl Engine {
 			Some(wgpu::CompareFunction::LessEqual),
 		);
 
-		let world_space_fragment_location = FrameTexture::new(
-			&context.device,
-			&context.surface_configuration,
-			wgpu::TextureFormat::Rgba16Float,
-			"World Space Fragment Location frame texture",
-			None,
-		);
 		let world_space_normal = FrameTexture::new(
 			&context.device,
 			&context.surface_configuration,
@@ -82,7 +75,6 @@ impl Engine {
 
 		let frame_textures = FrameTextures {
 			z_buffer,
-			world_space_fragment_location,
 			world_space_normal,
 			albedo_map,
 			arm_map,
@@ -172,7 +164,7 @@ impl Engine {
 		let orthographic = OrthographicProjection::new(1, 1, 40.0, 0., 1000.0);
 
 		// Main camera
-		let projection = PerspectiveProjection::new(self.context.surface_configuration.width, self.context.surface_configuration.height, cgmath::Deg(45.0), 0.1, 100.0);
+		let projection = PerspectiveProjection::new(self.context.surface_configuration.width, self.context.surface_configuration.height, cgmath::Deg(45.0), 0.1, 50.0);
 		let main_camera = self.scene.root.new_child("Main Camera");
 		main_camera.add_camera_component(&self.context, Projection::Perspective(projection));
 		// main_camera.add_camera_component(&self.context, Projection::Orthographic(orthographic));
@@ -336,12 +328,7 @@ impl Engine {
 				vec![albedo_map, arm_map, normal_map, voxel_light_map_binding],
 				// vec![albedo_map, arm_map, normal_map],
 				PipelineOptions::RenderPipeline(RenderPipelineOptions {
-					out_color_formats: vec![
-						wgpu::TextureFormat::Rgba16Float,
-						wgpu::TextureFormat::Rgba16Float,
-						wgpu::TextureFormat::Bgra8UnormSrgb,
-						wgpu::TextureFormat::Bgra8Unorm,
-					],
+					out_color_formats: vec![wgpu::TextureFormat::Rgba16Float, wgpu::TextureFormat::Bgra8UnormSrgb, wgpu::TextureFormat::Bgra8Unorm],
 					depth_format: Some(wgpu::TextureFormat::Depth32Float),
 					use_instances: true,
 					scene_camera: Some(main_camera),
@@ -355,14 +342,17 @@ impl Engine {
 		let pass_ssao_kernel_shader = {
 			let samples_array = ShaderBinding::Buffer(ShaderBindingBuffer::default());
 			let ssao_noise_texture = ShaderBinding::Texture(ShaderBindingTexture::default());
-			let world_space_fragment_location = ShaderBinding::Texture(ShaderBindingTexture::default());
+			let z_buffer = ShaderBinding::Texture(ShaderBindingTexture {
+				sampled_value_data_type: wgpu::TextureSampleType::Depth,
+				..ShaderBindingTexture::default()
+			});
 			let world_space_normal = ShaderBinding::Texture(ShaderBindingTexture::default());
 
 			Shader::new(
 				&self.context,
 				assets_path,
 				"pass_ssao_kernel.wgsl",
-				vec![samples_array, ssao_noise_texture, world_space_fragment_location, world_space_normal],
+				vec![samples_array, ssao_noise_texture, z_buffer, world_space_normal],
 				PipelineOptions::RenderPipeline(RenderPipelineOptions {
 					out_color_formats: vec![wgpu::TextureFormat::Rgba16Float],
 					depth_format: None,
@@ -396,7 +386,10 @@ impl Engine {
 		self.scene.resources.shaders.insert(pass_ssao_blurred_shader.name.clone(), pass_ssao_blurred_shader);
 
 		let pass_pbr_shading_shader = {
-			let world_space_fragment_location = ShaderBinding::Texture(ShaderBindingTexture::default());
+			let z_buffer = ShaderBinding::Texture(ShaderBindingTexture {
+				sampled_value_data_type: wgpu::TextureSampleType::Depth,
+				..ShaderBindingTexture::default()
+			});
 			let world_space_normal = ShaderBinding::Texture(ShaderBindingTexture::default());
 			let albedo_map = ShaderBinding::Texture(ShaderBindingTexture::default());
 			let arm_map = ShaderBinding::Texture(ShaderBindingTexture::default());
@@ -406,9 +399,10 @@ impl Engine {
 				&self.context,
 				assets_path,
 				"pass_pbr_shading.wgsl",
-				vec![world_space_fragment_location, world_space_normal, albedo_map, arm_map, ssao_blurred_map],
+				vec![z_buffer, world_space_normal, albedo_map, arm_map, ssao_blurred_map],
 				PipelineOptions::RenderPipeline(RenderPipelineOptions {
-					out_color_formats: vec![wgpu::TextureFormat::Rgba16Float],
+					out_color_formats: vec![self.context.surface_configuration.format],
+					// out_color_formats: vec![wgpu::TextureFormat::Rgba16Float],
 					depth_format: None,
 					use_instances: false,
 					scene_camera: Some(main_camera),
@@ -506,6 +500,19 @@ impl Engine {
 			usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
 			mapped_at_creation: false,
 		});
+		let z_buffer_sampler = self.context.device.create_sampler(&wgpu::SamplerDescriptor {
+			label: Some("Z Buffer sampleable sampler"),
+			address_mode_u: wgpu::AddressMode::ClampToEdge,
+			address_mode_v: wgpu::AddressMode::ClampToEdge,
+			address_mode_w: wgpu::AddressMode::ClampToEdge,
+			mag_filter: wgpu::FilterMode::Nearest,
+			min_filter: wgpu::FilterMode::Nearest,
+			mipmap_filter: wgpu::FilterMode::Nearest,
+			compare: None,
+			lod_min_clamp: -100.0,
+			lod_max_clamp: 100.0,
+			..Default::default()
+		});
 		let material_definitions = [
 			(
 				"pass_ssao_kernel.material",
@@ -517,7 +524,7 @@ impl Engine {
 						size: None,
 					}),
 					MaterialDataBinding::TextureName("SSAO_NOISE"),
-					MaterialDataBinding::Texture(&self.frame_textures.world_space_fragment_location.texture),
+					MaterialDataBinding::SampleableDepthTexture(&self.frame_textures.z_buffer.texture, &z_buffer_sampler),
 					MaterialDataBinding::Texture(&self.frame_textures.world_space_normal.texture),
 				],
 			),
@@ -530,7 +537,7 @@ impl Engine {
 				"pass_pbr_shading.material",
 				"pass_pbr_shading.wgsl",
 				vec![
-					MaterialDataBinding::Texture(&self.frame_textures.world_space_fragment_location.texture),
+					MaterialDataBinding::SampleableDepthTexture(&self.frame_textures.z_buffer.texture, &z_buffer_sampler),
 					MaterialDataBinding::Texture(&self.frame_textures.world_space_normal.texture),
 					MaterialDataBinding::Texture(&self.frame_textures.albedo_map.texture),
 					MaterialDataBinding::Texture(&self.frame_textures.arm_map.texture),
@@ -558,12 +565,11 @@ impl Engine {
 
 		let combined_materials = materials_to_load
 			.iter()
-			.map(|to_load| {
+			.map(|(material_name, shader_name, data_bindings)| {
 				(
-					to_load.0.as_str(),
-					to_load.1,
-					to_load
-						.2
+					material_name.as_str(),
+					*shader_name,
+					data_bindings
 						.iter()
 						.map(|texture_path| match texture_path.as_str() {
 							"VOXEL_LIGHTMAP" => MaterialDataBinding::Buffer(BufferBinding {
@@ -583,9 +589,9 @@ impl Engine {
 				)
 			})
 			.chain(material_definitions);
-		for material_definition in combined_materials {
-			let material = Material::new(material_definition.0, material_definition.1, material_definition.2, &self.scene.resources, &self.context.device);
-			self.scene.resources.materials.insert(String::from(material_definition.0), material);
+		for (material_name, shader_name, data_bindings) in combined_materials {
+			let material = Material::new(material_name, shader_name, data_bindings, &self.scene.resources, &self.context.device);
+			self.scene.resources.materials.insert(String::from(material_name), material);
 		}
 	}
 
@@ -710,7 +716,7 @@ impl Engine {
 
 		let passes = vec![
 			Pass::RenderPass(RenderPass {
-				label: String::from("Pass: Calc Voxel Lightmap"),
+				label: String::from("Scene: Render Voxel Lightmap"),
 				depth_attachment: None,
 				color_attachment_types: vec![
 					// &self.frame_textures.voxel_calculation_fragments_render_resolution.texture.view, // TODO: Update comment. Ignored, but wgpu seems to need at least one fragment output
@@ -719,36 +725,35 @@ impl Engine {
 				blit_material: None,
 				clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
 			}),
-			Pass::RenderPass(RenderPass {
-				label: String::from("Pass: Calc Voxel Lightmap"),
-				depth_attachment: None,
-				color_attachment_types: vec![
-					// &self.frame_textures.voxel_calculation_fragments_render_resolution.texture.view, // TODO: Update comment. Ignored, but wgpu seems to need at least one fragment output
-					&self.scene.resources.textures.get("VOXEL_CALCULATION_FRAGMENTS_RENDER_RESOLUTION").unwrap().view,
-				],
-				blit_material: None,
-				clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
-			}),
-			Pass::RenderPass(RenderPass {
-				label: String::from("Pass: Calc Voxel Lightmap"),
-				depth_attachment: None,
-				color_attachment_types: vec![
-					// &self.frame_textures.voxel_calculation_fragments_render_resolution.texture.view, // TODO: Update comment. Ignored, but wgpu seems to need at least one fragment output
-					&self.scene.resources.textures.get("VOXEL_CALCULATION_FRAGMENTS_RENDER_RESOLUTION").unwrap().view,
-				],
-				blit_material: None,
-				clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
-			}),
+			// Pass::RenderPass(RenderPass {
+			// 	label: String::from("Pass: Calc Voxel Lightmap"),
+			// 	depth_attachment: None,
+			// 	color_attachment_types: vec![
+			// 		// &self.frame_textures.voxel_calculation_fragments_render_resolution.texture.view, // TODO: Update comment. Ignored, but wgpu seems to need at least one fragment output
+			// 		&self.scene.resources.textures.get("VOXEL_CALCULATION_FRAGMENTS_RENDER_RESOLUTION").unwrap().view,
+			// 	],
+			// 	blit_material: None,
+			// 	clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
+			// }),
+			// Pass::RenderPass(RenderPass {
+			// 	label: String::from("Pass: Calc Voxel Lightmap"),
+			// 	depth_attachment: None,
+			// 	color_attachment_types: vec![
+			// 		// &self.frame_textures.voxel_calculation_fragments_render_resolution.texture.view, // TODO: Update comment. Ignored, but wgpu seems to need at least one fragment output
+			// 		&self.scene.resources.textures.get("VOXEL_CALCULATION_FRAGMENTS_RENDER_RESOLUTION").unwrap().view,
+			// 	],
+			// 	blit_material: None,
+			// 	clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
+			// }),
 			Pass::ComputePass(ComputePass {
-				label: String::from("Pass: Voxel Texture Generating"),
+				label: String::from("Compute: Generate Voxel Mipmaps"),
 				material: String::from("compute_voxel_texture_generating.material"),
 				work_groups_size: (128, 128, 128),
 			}),
 			Pass::RenderPass(RenderPass {
-				label: String::from("Scene: Deferred"),
+				label: String::from("Scene: Render Deferred"),
 				depth_attachment: Some(&self.frame_textures.z_buffer.texture.view),
 				color_attachment_types: vec![
-					&self.frame_textures.world_space_fragment_location.texture.view,
 					&self.frame_textures.world_space_normal.texture.view,
 					&self.frame_textures.albedo_map.texture.view,
 					&self.frame_textures.arm_map.texture.view,
@@ -773,17 +778,18 @@ impl Engine {
 			Pass::RenderPass(RenderPass {
 				label: String::from("Pass: PBR Shading"),
 				depth_attachment: None,
-				color_attachment_types: vec![&self.frame_textures.pbr_shaded_map.texture.view],
+				// color_attachment_types: vec![&self.frame_textures.pbr_shaded_map.texture.view],
+				color_attachment_types: vec![&surface_texture_view],
 				blit_material: Some(String::from("pass_pbr_shading.material")),
 				clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
 			}),
-			Pass::RenderPass(RenderPass {
-				label: String::from("Pass: HDR Exposure"),
-				depth_attachment: None,
-				color_attachment_types: vec![&surface_texture_view],
-				blit_material: Some(String::from("pass_hdr_exposure.material")),
-				clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
-			}),
+			// Pass::RenderPass(RenderPass {
+			// 	label: String::from("Pass: HDR Exposure"),
+			// 	depth_attachment: None,
+			// 	color_attachment_types: vec![&surface_texture_view],
+			// 	blit_material: Some(String::from("pass_hdr_exposure.material")),
+			// 	clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
+			// }),
 		];
 
 		for pass in passes {
@@ -817,11 +823,11 @@ impl Engine {
 						depth_stencil_attachment,
 					});
 
-					if pass.label == "Scene: Deferred" {
+					if pass.label == "Scene: Render Deferred" {
 						self.voxel_light_map.generate_mipmaps(&self.context);
 					}
 
-					if pass.label == "Pass: Calc Voxel Lightmap" {
+					if pass.label == "Scene: Render Voxel Lightmap" {
 						self.draw_scene(render_pass, &pass.label);
 					} else {
 						match pass.blit_material {
@@ -861,8 +867,8 @@ impl Engine {
 						.mesh
 						.unwrap_or_else(|| panic!("The mesh '{}:{}' is not loaded but is trying to be drawn", model.mesh_name.0, model.mesh_name.1))];
 					let maybe_material_index = match pass_name {
-						"Pass: Calc Voxel Lightmap" => model.voxel_lightmap_material,
-						"Scene: Deferred" => model.scene_deferred_material,
+						"Scene: Render Voxel Lightmap" => model.voxel_lightmap_material,
+						"Scene: Render Deferred" => model.scene_deferred_material,
 						_ => panic!("Invalid render pass for drawing scene {}", pass_name),
 					};
 					let material_index = maybe_material_index.unwrap_or_else(|| {

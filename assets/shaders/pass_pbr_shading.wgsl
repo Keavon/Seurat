@@ -3,6 +3,8 @@ let PI: f32 = 3.14159265359;
 [[block]] struct Camera {
 	v_matrix: mat4x4<f32>;
 	p_matrix: mat4x4<f32>;
+	inv_v_matrix: mat4x4<f32>;
+	inv_p_matrix: mat4x4<f32>;
 };
 [[block]] struct Light {
 	location: vec3<f32>;
@@ -12,8 +14,8 @@ let PI: f32 = 3.14159265359;
 // Uniforms
 [[group(0), binding(0)]] var<uniform> camera: Camera;
 [[group(1), binding(0)]] var<uniform> light: Light;
-[[group(2), binding(0)]] var t_world_space_fragment_location: texture_2d<f32>;
-[[group(2), binding(1)]] var s_world_space_fragment_location: sampler;
+[[group(2), binding(0)]] var t_z_buffer: texture_depth_2d;
+[[group(2), binding(1)]] var s_z_buffer: sampler;
 [[group(2), binding(2)]] var t_world_space_normal: texture_2d<f32>;
 [[group(2), binding(3)]] var s_world_space_normal: sampler;
 [[group(2), binding(4)]] var t_albedo_map: texture_2d<f32>;
@@ -81,15 +83,29 @@ fn geometry_smith(n: vec3<f32>, v: vec3<f32>, l: vec3<f32>, roughness: f32) -> f
 	return ggx1 * ggx2;
 }
 
+fn world_position_from_depth(uv: vec2<f32>, z: f32) -> vec3<f32> {
+	if (z == 1.) {
+		return vec3<f32>(0.);
+	}
+
+	let xy = vec2<f32>(uv.x, 1. - uv.y) * 2. - 1.;
+	let clip_space_position = vec4<f32>(xy, z, 1.);
+
+	let view_space_position = (camera.inv_v_matrix * camera.inv_p_matrix) * clip_space_position;
+	return view_space_position.xyz / view_space_position.w;
+}
+
 // Fragment shader
 [[stage(fragment)]]
 fn main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
 	// Texture lookup
-	let fragment_location = textureSample(t_world_space_fragment_location, s_world_space_fragment_location, in.uv).xyz;
+	let z_depth = textureSample(t_z_buffer, s_z_buffer, in.uv);
 	let normal = textureSample(t_world_space_normal, s_world_space_normal, in.uv).xyz;
 	let albedo_map = textureSample(t_albedo_map, s_albedo_map, in.uv);
 	let arm_map = textureSample(t_arm_map, s_arm_map, in.uv);
 	let ssao = textureSample(t_ssao, s_ssao, in.uv).r;
+
+	let fragment_location = world_position_from_depth(in.uv, z_depth);
 
 	// PBR input data
 	let eye_location = camera.v_matrix[3].xyz;

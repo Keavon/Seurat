@@ -26,7 +26,9 @@ impl Material {
 						.get(index)
 						.map(|material_data_binding| match material_data_binding {
 							MaterialDataBinding::Buffer(buffer) => Some(buffer.clone()),
-							MaterialDataBinding::Texture(_) | &MaterialDataBinding::TextureName(_) | MaterialDataBinding::StorageTexture(_, _) => None,
+							MaterialDataBinding::Texture(_) | &MaterialDataBinding::TextureName(_) | MaterialDataBinding::SampleableDepthTexture(_, _) | MaterialDataBinding::StorageTexture(_, _) => {
+								None
+							}
 						})
 						.flatten()
 						.unwrap_or_else(|| panic!("Provided binding data for material '{}' does not match the shader definition", material_name));
@@ -44,6 +46,7 @@ impl Material {
 						.get(index)
 						.map(|material_data_binding| match material_data_binding {
 							&MaterialDataBinding::Texture(texture) => Some((&texture.sampler, &texture.view)),
+							&MaterialDataBinding::SampleableDepthTexture(texture, sampler) => Some((sampler, &texture.view)),
 							&MaterialDataBinding::StorageTexture(texture, view) => Some((&texture.sampler, view.unwrap_or(&texture.view))),
 							MaterialDataBinding::TextureName(texture) => Some((&resources.textures[*texture].sampler, &resources.textures[*texture].view)),
 							MaterialDataBinding::Buffer(_) => None,
@@ -70,6 +73,7 @@ impl Material {
 						.get(index)
 						.map(|material_data_binding| match material_data_binding {
 							&MaterialDataBinding::Texture(texture) => Some((&texture.sampler, &texture.view)),
+							&MaterialDataBinding::SampleableDepthTexture(texture, sampler) => Some((sampler, &texture.view)),
 							&MaterialDataBinding::StorageTexture(texture, view) => Some((&texture.sampler, view.unwrap_or(&texture.view))),
 							MaterialDataBinding::TextureName(texture) => Some((&resources.textures[*texture].sampler, &resources.textures[*texture].view)),
 							MaterialDataBinding::Buffer(_) => None,
@@ -102,6 +106,7 @@ impl Material {
 pub enum MaterialDataBinding<'a> {
 	Buffer(wgpu::BufferBinding<'a>),
 	Texture(&'a Texture),
+	SampleableDepthTexture(&'a Texture, &'a wgpu::Sampler),
 	StorageTexture(&'a Texture, Option<&'a wgpu::TextureView>),
 	TextureName(&'a str),
 }

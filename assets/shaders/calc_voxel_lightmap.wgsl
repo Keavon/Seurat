@@ -1,6 +1,8 @@
 [[block]] struct Camera {
 	v_matrix: mat4x4<f32>;
 	p_matrix: mat4x4<f32>;
+	inv_v_matrix: mat4x4<f32>;
+	inv_p_matrix: mat4x4<f32>;
 };
 [[block]] struct Light {
 	location: vec3<f32>;
