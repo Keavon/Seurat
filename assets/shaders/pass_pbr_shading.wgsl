@@ -5,6 +5,8 @@ let PI: f32 = 3.14159265359;
 	p_matrix: mat4x4<f32>;
 	inv_v_matrix: mat4x4<f32>;
 	inv_p_matrix: mat4x4<f32>;
+	prev_v_matrix: mat4x4<f32>;
+	prev_p_matrix: mat4x4<f32>;
 };
 [[block]] struct Light {
 	location: vec3<f32>;

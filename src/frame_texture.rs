@@ -20,7 +20,7 @@ impl FrameTexture {
 			sample_count: 1,
 			dimension: wgpu::TextureDimension::D2,
 			format,
-			usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+			usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::COPY_DST,
 		};
 		let texture = device.create_texture(&texture_descriptor);
 
@@ -52,22 +52,26 @@ impl FrameTexture {
 
 pub struct FrameTextures {
 	pub z_buffer: FrameTexture,
+	pub z_buffer_previous: FrameTexture,
 	pub world_space_normal: FrameTexture,
 	pub albedo_map: FrameTexture,
 	pub arm_map: FrameTexture,
 	pub ssao_kernel_map: FrameTexture,
 	pub ssao_blurred_map: FrameTexture,
 	pub pbr_shaded_map: FrameTexture,
+	pub motion_blur_map: FrameTexture,
 }
 
 impl FrameTextures {
 	pub fn recreate_all(&mut self, device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) {
 		self.z_buffer.recreate(device, config);
+		self.z_buffer_previous.recreate(device, config);
 		self.world_space_normal.recreate(device, config);
 		self.albedo_map.recreate(device, config);
 		self.arm_map.recreate(device, config);
 		self.ssao_kernel_map.recreate(device, config);
 		self.ssao_blurred_map.recreate(device, config);
 		self.pbr_shaded_map.recreate(device, config);
+		self.motion_blur_map.recreate(device, config);
 	}
 }

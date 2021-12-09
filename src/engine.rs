@@ -50,7 +50,13 @@ impl Engine {
 			"Z-buffer frame texture",
 			Some(wgpu::CompareFunction::LessEqual),
 		);
-
+		let z_buffer_previous = FrameTexture::new(
+			&context.device,
+			&context.surface_configuration,
+			wgpu::TextureFormat::Depth32Float,
+			"Z-buffer frame texture",
+			Some(wgpu::CompareFunction::LessEqual),
+		);
 		let world_space_normal = FrameTexture::new(
 			&context.device,
 			&context.surface_configuration,
@@ -58,10 +64,8 @@ impl Engine {
 			"World Space Normal frame texture",
 			None,
 		);
-
 		let albedo_map = FrameTexture::new(&context.device, &context.surface_configuration, wgpu::TextureFormat::Bgra8UnormSrgb, "Albedo Map frame texture", None);
 		let arm_map = FrameTexture::new(&context.device, &context.surface_configuration, wgpu::TextureFormat::Bgra8Unorm, "ARM Map frame texture", None);
-
 		let ssao_kernel_map = FrameTexture::new(&context.device, &context.surface_configuration, wgpu::TextureFormat::Rgba16Float, "SSAO Kernel Map frame texture", None);
 		let ssao_blurred_map = FrameTexture::new(
 			&context.device,
@@ -70,17 +74,19 @@ impl Engine {
 			"SSAO Blurred Map frame texture",
 			None,
 		);
-
 		let pbr_shaded_map = FrameTexture::new(&context.device, &context.surface_configuration, wgpu::TextureFormat::Rgba16Float, "PBR Shaded Map frame texture", None);
+		let motion_blur_map = FrameTexture::new(&context.device, &context.surface_configuration, wgpu::TextureFormat::Rgba16Float, "Motion Blur Map frame texture", None);
 
 		let frame_textures = FrameTextures {
 			z_buffer,
+			z_buffer_previous,
 			world_space_normal,
 			albedo_map,
 			arm_map,
 			ssao_kernel_map,
 			ssao_blurred_map,
 			pbr_shaded_map,
+			motion_blur_map,
 		};
 
 		let voxel_light_map = VoxelTexture::new(&context.device, (128, 128, 128), wgpu::TextureFormat::Rgba8Unorm, "Voxel Light Map (u32)", None);
@@ -149,17 +155,17 @@ impl Engine {
 			rotation: cgmath::Quaternion::look_at(cgmath::Vector3::new(-1., -1., -1.), cgmath::Vector3::new(0., 1., 0.)),
 			scale: cgmath::Vector3::new(1., 1., 1.),
 		};
-		let voxel_camera_transform_y = Transform {
-			location: cgmath::Point3::new(0., -0., -20.),
-			// rotation: cgmath::Quaternion::from_angle_x(cgmath::Deg(90.)),
-			rotation: cgmath::Quaternion::from_angle_x(cgmath::Deg(90.)),
-			scale: cgmath::Vector3::new(1., 1., 1.),
-		};
-		let voxel_camera_transform_z = Transform {
-			location: cgmath::Point3::new(0., -5., -10.),
-			rotation: cgmath::Quaternion::new(1., 0., 0., 0.),
-			scale: cgmath::Vector3::new(1., 1., 1.),
-		};
+		// let voxel_camera_transform_y = Transform {
+		// 	location: cgmath::Point3::new(0., -0., -20.),
+		// 	// rotation: cgmath::Quaternion::from_angle_x(cgmath::Deg(90.)),
+		// 	rotation: cgmath::Quaternion::from_angle_x(cgmath::Deg(90.)),
+		// 	scale: cgmath::Vector3::new(1., 1., 1.),
+		// };
+		// let voxel_camera_transform_z = Transform {
+		// 	location: cgmath::Point3::new(0., -5., -10.),
+		// 	rotation: cgmath::Quaternion::new(1., 0., 0., 0.),
+		// 	scale: cgmath::Vector3::new(1., 1., 1.),
+		// };
 
 		let orthographic = OrthographicProjection::new(1, 1, 40.0, 0., 1000.0);
 
@@ -306,6 +312,7 @@ impl Engine {
 					scene_camera: None,
 					scene_lighting: Some(&self.scene_lighting),
 					scene_debug_buffer: None,
+					blend: true,
 				}),
 			)
 		};
@@ -316,8 +323,10 @@ impl Engine {
 			let arm_map = ShaderBinding::Texture(ShaderBindingTexture::default()); // AO/Roughness/Metalness map
 			let normal_map = ShaderBinding::Texture(ShaderBindingTexture::default()); // Normal map
 			let voxel_light_map_binding = {
-				let mut binding_tex = ShaderBindingTexture::default();
-				binding_tex.dimensions = wgpu::TextureViewDimension::D3;
+				let binding_tex = ShaderBindingTexture {
+					dimensions: wgpu::TextureViewDimension::D3,
+					..ShaderBindingTexture::default()
+				};
 				ShaderBinding::Texture(binding_tex)
 			};
 
@@ -328,12 +337,18 @@ impl Engine {
 				vec![albedo_map, arm_map, normal_map, voxel_light_map_binding],
 				// vec![albedo_map, arm_map, normal_map],
 				PipelineOptions::RenderPipeline(RenderPipelineOptions {
-					out_color_formats: vec![wgpu::TextureFormat::Rgba16Float, wgpu::TextureFormat::Bgra8UnormSrgb, wgpu::TextureFormat::Bgra8Unorm],
+					out_color_formats: vec![
+						wgpu::TextureFormat::Rgba16Float,
+						// wgpu::TextureFormat::Rgba16Float,
+						wgpu::TextureFormat::Bgra8UnormSrgb,
+						wgpu::TextureFormat::Bgra8Unorm,
+					],
 					depth_format: Some(wgpu::TextureFormat::Depth32Float),
 					use_instances: true,
 					scene_camera: Some(main_camera),
 					scene_lighting: Some(&self.scene_lighting),
 					scene_debug_buffer: Some(&self.debug_buffer),
+					blend: true,
 				}),
 			)
 		};
@@ -360,6 +375,7 @@ impl Engine {
 					scene_camera: Some(main_camera),
 					scene_lighting: None,
 					scene_debug_buffer: None,
+					blend: true,
 				}),
 			)
 		};
@@ -380,6 +396,7 @@ impl Engine {
 					scene_camera: None,
 					scene_lighting: None,
 					scene_debug_buffer: None,
+					blend: true,
 				}),
 			)
 		};
@@ -401,17 +418,48 @@ impl Engine {
 				"pass_pbr_shading.wgsl",
 				vec![z_buffer, world_space_normal, albedo_map, arm_map, ssao_blurred_map],
 				PipelineOptions::RenderPipeline(RenderPipelineOptions {
-					out_color_formats: vec![self.context.surface_configuration.format],
-					// out_color_formats: vec![wgpu::TextureFormat::Rgba16Float],
+					// out_color_formats: vec![self.context.surface_configuration.format],
+					out_color_formats: vec![wgpu::TextureFormat::Rgba16Float],
 					depth_format: None,
 					use_instances: false,
 					scene_camera: Some(main_camera),
 					scene_lighting: Some(&self.scene_lighting),
 					scene_debug_buffer: None,
+					blend: true,
 				}),
 			)
 		};
 		self.scene.resources.shaders.insert(pass_pbr_shading_shader.name.clone(), pass_pbr_shading_shader);
+
+		let pass_motion_blur_shader = {
+			let pbr_shaded = ShaderBinding::Texture(ShaderBindingTexture::default());
+			let z_buffer_previous = ShaderBinding::Texture(ShaderBindingTexture {
+				sampled_value_data_type: wgpu::TextureSampleType::Depth,
+				..ShaderBindingTexture::default()
+			});
+			let z_buffer = ShaderBinding::Texture(ShaderBindingTexture {
+				sampled_value_data_type: wgpu::TextureSampleType::Depth,
+				..ShaderBindingTexture::default()
+			});
+
+			Shader::new(
+				&self.context,
+				assets_path,
+				"pass_motion_blur.wgsl",
+				vec![pbr_shaded, z_buffer_previous, z_buffer],
+				PipelineOptions::RenderPipeline(RenderPipelineOptions {
+					out_color_formats: vec![wgpu::TextureFormat::Rgba16Float],
+					// out_color_formats: vec![self.context.surface_configuration.format],
+					depth_format: None,
+					use_instances: false,
+					scene_camera: Some(main_camera),
+					scene_lighting: None,
+					scene_debug_buffer: None,
+					blend: false,
+				}),
+			)
+		};
+		self.scene.resources.shaders.insert(pass_motion_blur_shader.name.clone(), pass_motion_blur_shader);
 
 		let voxel_texture_generating_shader = {
 			let voxel_lightmap_binding = {
@@ -453,6 +501,7 @@ impl Engine {
 					scene_camera: None,
 					scene_lighting: None,
 					scene_debug_buffer: None,
+					blend: true,
 				}),
 			)
 		};
@@ -495,10 +544,23 @@ impl Engine {
 			usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
 		});
 		let voxel_storage_buffer = self.context.device.create_buffer(&wgpu::BufferDescriptor {
-			label: Some("Voxel Storage Buffer"),
+			label: Some("Voxel storage buffer"),
 			size: 128 * 128 * 128 * 4 * 4,
 			usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
 			mapped_at_creation: false,
+		});
+		let z_buffer_previous_sampler = self.context.device.create_sampler(&wgpu::SamplerDescriptor {
+			label: Some("Z Buffer Previous sampleable sampler"),
+			address_mode_u: wgpu::AddressMode::ClampToEdge,
+			address_mode_v: wgpu::AddressMode::ClampToEdge,
+			address_mode_w: wgpu::AddressMode::ClampToEdge,
+			mag_filter: wgpu::FilterMode::Nearest,
+			min_filter: wgpu::FilterMode::Nearest,
+			mipmap_filter: wgpu::FilterMode::Nearest,
+			compare: None,
+			lod_min_clamp: -100.0,
+			lod_max_clamp: 100.0,
+			..Default::default()
 		});
 		let z_buffer_sampler = self.context.device.create_sampler(&wgpu::SamplerDescriptor {
 			label: Some("Z Buffer sampleable sampler"),
@@ -557,9 +619,18 @@ impl Engine {
 				],
 			),
 			(
+				"pass_motion_blur.material",
+				"pass_motion_blur.wgsl",
+				vec![
+					MaterialDataBinding::Texture(&self.frame_textures.pbr_shaded_map.texture),
+					MaterialDataBinding::SampleableDepthTexture(&self.frame_textures.z_buffer_previous.texture, &z_buffer_previous_sampler),
+					MaterialDataBinding::SampleableDepthTexture(&self.frame_textures.z_buffer.texture, &z_buffer_sampler),
+				],
+			),
+			(
 				"pass_hdr_exposure.material",
 				"pass_hdr_exposure.wgsl",
-				vec![MaterialDataBinding::Texture(&self.frame_textures.pbr_shaded_map.texture)],
+				vec![MaterialDataBinding::Texture(&self.frame_textures.motion_blur_map.texture)],
 			),
 		];
 
@@ -684,7 +755,7 @@ impl Engine {
 
 		// Light
 		let old_position: cgmath::Vector3<_> = self.scene_lighting.light_uniform.location.into();
-		let new_position = cgmath::Quaternion::from_axis_angle((0.0, 1.0, 0.0).into(), cgmath::Deg(20.0 * delta_time.as_secs_f32())) * old_position;
+		let new_position = cgmath::Quaternion::from_axis_angle((0.0, 1.0, 0.0).into(), cgmath::Deg(25.0 * delta_time.as_secs_f32())) * old_position;
 		self.scene_lighting.light_uniform.location = new_position.into();
 		self.context
 			.queue
@@ -754,6 +825,7 @@ impl Engine {
 				label: String::from("Scene: Render Deferred"),
 				depth_attachment: Some(&self.frame_textures.z_buffer.texture.view),
 				color_attachment_types: vec![
+					// &self.frame_textures.motion_vector_map.texture.view,
 					&self.frame_textures.world_space_normal.texture.view,
 					&self.frame_textures.albedo_map.texture.view,
 					&self.frame_textures.arm_map.texture.view,
@@ -778,19 +850,32 @@ impl Engine {
 			Pass::RenderPass(RenderPass {
 				label: String::from("Pass: PBR Shading"),
 				depth_attachment: None,
-				// color_attachment_types: vec![&self.frame_textures.pbr_shaded_map.texture.view],
-				color_attachment_types: vec![&surface_texture_view],
+				color_attachment_types: vec![&self.frame_textures.pbr_shaded_map.texture.view],
+				// color_attachment_types: vec![&surface_texture_view],
 				blit_material: Some(String::from("pass_pbr_shading.material")),
 				clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
 			}),
-			// Pass::RenderPass(RenderPass {
-			// 	label: String::from("Pass: HDR Exposure"),
-			// 	depth_attachment: None,
-			// 	color_attachment_types: vec![&surface_texture_view],
-			// 	blit_material: Some(String::from("pass_hdr_exposure.material")),
-			// 	clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
-			// }),
+			Pass::RenderPass(RenderPass {
+				label: String::from("Pass: Motion Blur"),
+				depth_attachment: None,
+				// color_attachment_types: vec![&surface_texture_view],
+				color_attachment_types: vec![&self.frame_textures.motion_blur_map.texture.view],
+				blit_material: Some(String::from("pass_motion_blur.material")),
+				clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
+			}),
+			Pass::RenderPass(RenderPass {
+				label: String::from("Pass: HDR Exposure"),
+				depth_attachment: None,
+				color_attachment_types: vec![&surface_texture_view],
+				blit_material: Some(String::from("pass_hdr_exposure.material")),
+				clear_color: wgpu::Color { r: 0., g: 0., b: 0., a: 1.0 },
+			}),
 		];
+
+		let z_buffer_source_copy = self.frame_textures.z_buffer.texture.texture.as_image_copy();
+		let z_buffer_destination_copy = self.frame_textures.z_buffer_previous.texture.texture.as_image_copy();
+		let z_buffer_size = self.frame_textures.z_buffer.texture.size;
+		encoder.copy_texture_to_texture(z_buffer_source_copy, z_buffer_destination_copy, z_buffer_size);
 
 		for pass in passes {
 			match pass {

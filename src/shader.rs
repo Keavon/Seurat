@@ -78,6 +78,7 @@ impl Shader {
 					&pipeline_layout,
 					render_options.out_color_formats,
 					render_options.depth_format,
+					render_options.blend,
 					vertex_layouts,
 					shader_module_descriptor,
 				);
@@ -175,6 +176,7 @@ fn create_render_pipeline(
 	layout: &wgpu::PipelineLayout,
 	color_formats: Vec<wgpu::TextureFormat>,
 	depth_format: Option<wgpu::TextureFormat>,
+	blend: bool,
 	vertex_layouts: &[wgpu::VertexBufferLayout],
 	shader_module_descriptor: wgpu::ShaderModuleDescriptor,
 ) -> wgpu::RenderPipeline {
@@ -195,10 +197,14 @@ fn create_render_pipeline(
 				.into_iter()
 				.map(|format| wgpu::ColorTargetState {
 					format,
-					blend: Some(wgpu::BlendState {
-						alpha: wgpu::BlendComponent::REPLACE,
-						color: wgpu::BlendComponent::REPLACE,
-					}),
+					blend: if blend {
+						Some(wgpu::BlendState {
+							alpha: wgpu::BlendComponent::REPLACE,
+							color: wgpu::BlendComponent::REPLACE,
+						})
+					} else {
+						None
+					},
 					write_mask: wgpu::ColorWrites::ALL,
 				})
 				.collect::<Vec<_>>()
@@ -259,6 +265,7 @@ pub struct RenderPipelineOptions<'a> {
 	pub scene_camera: Option<&'a Camera>,
 	pub scene_lighting: Option<&'a SceneLighting>,
 	pub scene_debug_buffer: Option<&'a DebugBuffer>,
+	pub blend: bool,
 }
 
 pub struct ComputePipelineOptions {}

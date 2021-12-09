@@ -95,7 +95,7 @@ impl Camera {
 			Projection::Perspective(p) => p.p_matrix(),
 			Projection::Orthographic(o) => o.p_matrix(),
 		};
-		self.camera_uniform = CameraUniform::from_vp(v, p);
+		self.camera_uniform = CameraUniform::from_vp(v, p, self.camera_uniform.v_matrix, self.camera_uniform.p_matrix);
 
 		queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera_uniform]));
 	}
@@ -114,7 +114,7 @@ impl Camera {
 			Projection::Perspective(p) => p.p_matrix(),
 			Projection::Orthographic(o) => o.p_matrix(),
 		};
-		self.camera_uniform = CameraUniform::from_vp(v, p);
+		self.camera_uniform = CameraUniform::from_vp(v, p, self.camera_uniform.v_matrix, self.camera_uniform.p_matrix);
 
 		queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera_uniform]));
 	}
@@ -131,19 +131,28 @@ pub struct CameraUniform {
 	p_matrix: [[f32; 4]; 4],
 	inv_v_matrix: [[f32; 4]; 4],
 	inv_p_matrix: [[f32; 4]; 4],
+	prev_v_matrix: [[f32; 4]; 4],
+	prev_p_matrix: [[f32; 4]; 4],
 }
 
 impl CameraUniform {
 	pub fn new() -> Self {
-		Self::from_vp(cgmath::Matrix4::identity(), cgmath::Matrix4::identity())
+		Self::from_vp(
+			cgmath::Matrix4::identity(),
+			cgmath::Matrix4::identity(),
+			cgmath::Matrix4::identity().into(),
+			cgmath::Matrix4::identity().into(),
+		)
 	}
 
-	pub fn from_vp(v: cgmath::Matrix4<f32>, p: cgmath::Matrix4<f32>) -> Self {
+	pub fn from_vp(v: cgmath::Matrix4<f32>, p: cgmath::Matrix4<f32>, prev_v: [[f32; 4]; 4], prev_p: [[f32; 4]; 4]) -> Self {
 		Self {
 			v_matrix: v.into(),
 			p_matrix: p.into(),
 			inv_v_matrix: cgmath::Matrix4::invert(&v).unwrap().into(),
 			inv_p_matrix: cgmath::Matrix4::invert(&p).unwrap().into(),
+			prev_v_matrix: prev_v,
+			prev_p_matrix: prev_p,
 		}
 	}
 }
