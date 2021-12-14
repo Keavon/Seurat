@@ -20,10 +20,10 @@
 [[group(2), binding(0)]] var<uniform> debug: Debug;
 [[group(3), binding(0)]] var t_albedo: texture_2d<f32>;
 [[group(3), binding(1)]] var s_albedo: sampler;
-[[group(3), binding(2)]] var t_arm: texture_2d<f32>;
-[[group(3), binding(3)]] var s_arm: sampler;
-[[group(3), binding(4)]] var t_normal: texture_2d<f32>;
-[[group(3), binding(5)]] var s_normal: sampler;
+[[group(3), binding(2)]] var t_emission: texture_2d<f32>;
+[[group(3), binding(3)]] var s_emission: sampler;
+[[group(3), binding(4)]] var t_shadow: texture_2d<f32>;
+[[group(3), binding(5)]] var s_shadow: sampler;
 [[group(3), binding(6)]] var t_voxel_lightmap: texture_3d<f32>;
 [[group(3), binding(7)]] var s_voxel_lightmap: sampler;
 
@@ -101,7 +101,7 @@ fn main(in: VertexOutput) -> FragmentOutput {
 
 	// Normal map
 	let from_tangent_space = mat3x3<f32>(world_space_tangent, world_space_bitangent, world_space_normal);
-	var tangent_space_normal = textureSample(t_normal, s_normal, uv).xyz * 2. - 1.;
+	var tangent_space_normal = textureSample(t_shadow, s_shadow, uv).xyz * 2. - 1.;
 	world_space_normal = from_tangent_space * normalize(mix(vec3<f32>(0., 1., 0.), tangent_space_normal, NORMAL_MAP_STRENGTH));
 
 	let world_position = in.world_space_fragment_location;
@@ -115,9 +115,10 @@ fn main(in: VertexOutput) -> FragmentOutput {
 	let lightmap_sample = textureSampleLevel(t_voxel_lightmap, s_voxel_lightmap, normalized_position, debug.values[0]);
 
 	return FragmentOutput(
-		vec4<f32>(world_space_normal, 1.),
+		// vec4<f32>(world_space_normal, 1.),
 		// lightmap_sample,
+		textureSample(t_shadow, s_shadow, uv).rgba,
 		textureSample(t_albedo, s_albedo, uv).rgba,
-		textureSample(t_arm, s_arm, uv).rgba,
+		textureSample(t_emission, s_emission, uv).rgba,
 	);
 }

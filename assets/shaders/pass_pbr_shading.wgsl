@@ -5,8 +5,6 @@ let PI: f32 = 3.14159265359;
 	p_matrix: mat4x4<f32>;
 	inv_v_matrix: mat4x4<f32>;
 	inv_p_matrix: mat4x4<f32>;
-	prev_v_matrix: mat4x4<f32>;
-	prev_p_matrix: mat4x4<f32>;
 };
 [[block]] struct Light {
 	location: vec3<f32>;
@@ -18,12 +16,12 @@ let PI: f32 = 3.14159265359;
 [[group(1), binding(0)]] var<uniform> light: Light;
 [[group(2), binding(0)]] var t_z_buffer: texture_depth_2d;
 [[group(2), binding(1)]] var s_z_buffer: sampler;
-[[group(2), binding(2)]] var t_world_space_normal: texture_2d<f32>;
-[[group(2), binding(3)]] var s_world_space_normal: sampler;
+[[group(2), binding(2)]] var t_shadow: texture_2d<f32>;
+[[group(2), binding(3)]] var s_shadow: sampler;
 [[group(2), binding(4)]] var t_albedo_map: texture_2d<f32>;
 [[group(2), binding(5)]] var s_albedo_map: sampler;
-[[group(2), binding(6)]] var t_arm_map: texture_2d<f32>;
-[[group(2), binding(7)]] var s_arm_map: sampler;
+[[group(2), binding(6)]] var t_emission: texture_2d<f32>;
+[[group(2), binding(7)]] var s_emission: sampler;
 [[group(2), binding(8)]] var t_ssao: texture_2d<f32>;
 [[group(2), binding(9)]] var s_ssao: sampler;
 
@@ -102,82 +100,87 @@ fn world_position_from_depth(uv: vec2<f32>, z: f32) -> vec3<f32> {
 fn main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
 	// Texture lookup
 	let z_depth = textureSample(t_z_buffer, s_z_buffer, in.uv);
-	let normal = textureSample(t_world_space_normal, s_world_space_normal, in.uv).xyz;
+	let shadow_map = textureSample(t_shadow, s_shadow, in.uv).xyz;
 	let albedo_map = textureSample(t_albedo_map, s_albedo_map, in.uv);
-	let arm_map = textureSample(t_arm_map, s_arm_map, in.uv);
+	let emission_map = textureSample(t_emission, s_emission, in.uv);
 	let ssao = textureSample(t_ssao, s_ssao, in.uv).r;
 
 	let fragment_location = world_position_from_depth(in.uv, z_depth);
 
-	// PBR input data
-	let eye_location = camera.v_matrix[3].xyz;
-	let light_location = light.location;
+	// // PBR input data
+	// let eye_location = camera.v_matrix[3].xyz;
+	// let light_location = light.location;
 	let albedo = pow(albedo_map.rgb, vec3<f32>(2.2));
-	let alpha = albedo_map.a;
-	let ambient = vec3<f32>(0.05);
-	let ao = (1. - arm_map.x);
-	let roughness = arm_map.y;
-	let metallic = arm_map.z;
-	let light_color = vec3<f32>(5.);
+	// let alpha = albedo_map.a;
+	// let ambient = vec3<f32>(0.05);
+	// let ao = (1. - arm_map.x);
+	// let roughness = arm_map.y;
+	// let metallic = arm_map.z;
+	// let light_color = vec3<f32>(5.);
 
-	// Lights
-	let lights_count = 1u;
-	var light_locations = array<vec3<f32>, 1>(light_location);
-	var light_colors = array<vec3<f32>, 1>(light_color);
+	// // Lights
+	// let lights_count = 1u;
+	// var light_locations = array<vec3<f32>, 1>(light_location);
+	// var light_colors = array<vec3<f32>, 1>(light_color);
 
-	// Per-fragment unit vectors
-	let v = normalize(fragment_location - eye_location);
-	let n = normalize(normal);
+	// // Per-fragment unit vectors
+	// let v = normalize(fragment_location - eye_location);
+	// let n = normalize(normal);
 
-	var color = vec3<f32>(0.0);
-	for (var i: u32 = 0u; i < lights_count; i = i + 1u) {
-		let light_location = light_locations[i];
+	// var color = vec3<f32>(0.0);
+	// for (var i: u32 = 0u; i < lights_count; i = i + 1u) {
+	// 	let light_location = light_locations[i];
 
-		// Per-light unit vectors
-		let l = normalize(light_location - fragment_location);
-		let h = normalize(v + l);
+	// 	// Per-light unit vectors
+	// 	let l = normalize(light_location - fragment_location);
+	// 	let h = normalize(v + l);
 
-		let n_dot_l = max(dot(n, l), 0.0);
+	// 	let n_dot_l = max(dot(n, l), 0.0);
 
-		// Radiance contribution by this light
-		let distance = length(light_location - fragment_location);
-		let falloff = 1.0 / (distance * distance);
-		let radiance = light_colors[i] * falloff;
+	// 	// Radiance contribution by this light
+	// 	let distance = length(light_location - fragment_location);
+	// 	let falloff = 1.0 / (distance * distance);
+	// 	let radiance = light_colors[i] * falloff;
 
-		// Fresnel color
-		let good_dielectric_f0 = vec3<f32>(0.04);
-		let f0 = mix(good_dielectric_f0, albedo, metallic);
-		let f = fresnel_schlick(max(dot(h, v), 0.0), f0);
+	// 	// Fresnel color
+	// 	let good_dielectric_f0 = vec3<f32>(0.04);
+	// 	let f0 = mix(good_dielectric_f0, albedo, metallic);
+	// 	let f = fresnel_schlick(max(dot(h, v), 0.0), f0);
 
-		// Normal distribution factor (specular highlight alignment of microfacets with halfway vector)
-		let ndf = distribution_ggx(n, h, roughness);
+	// 	// Normal distribution factor (specular highlight alignment of microfacets with halfway vector)
+	// 	let ndf = distribution_ggx(n, h, roughness);
 
-		// Geometry self-occlusion factor
-		let g = geometry_smith(n, v, l, roughness);
+	// 	// Geometry self-occlusion factor
+	// 	let g = geometry_smith(n, v, l, roughness);
 
-		// Specular contribution
-		let specular = (f * ndf * g) / (4.0 * max(dot(n, v), 0.0) * n_dot_l + 0.0001);
+	// 	// Specular contribution
+	// 	let specular = (f * ndf * g) / (4.0 * max(dot(n, v), 0.0) * n_dot_l + 0.0001);
 
-		// Portion of illumination that is not specular is diffuse
-		let specular_component = f;
-		var diffuse_component = (vec3<f32>(1.0) - specular_component);
-		diffuse_component = diffuse_component * (1.0 - metallic); // Nullify diffuse when surface is metallic
+	// 	// Portion of illumination that is not specular is diffuse
+	// 	let specular_component = f;
+	// 	var diffuse_component = (vec3<f32>(1.0) - specular_component);
+	// 	diffuse_component = diffuse_component * (1.0 - metallic); // Nullify diffuse when surface is metallic
 
-		// Diffuse contribution
-		let diffuse = diffuse_component * albedo / PI;
+	// 	// Diffuse contribution
+	// 	let diffuse = diffuse_component * albedo / PI;
 
-		// Bidirectional reflectance distribution function
-		let reflectance = diffuse + specular;
-		let light_illumination = reflectance * radiance * n_dot_l;
+	// 	// Bidirectional reflectance distribution function
+	// 	let reflectance = diffuse + specular;
+	// 	let light_illumination = reflectance * radiance * n_dot_l;
 
-		// Add this light to the fragment's sum of illumination
-		color = color + light_illumination;
-	}
+	// 	// Add this light to the fragment's sum of illumination
+	// 	color = color + light_illumination;
+	// }
 
 	// Add ambient occlusion
-	let ambient_removal = ao * ssao;
-	let ambient_component = albedo * ambient * pow(ambient_removal, 3.);
+	// let ambient_removal = shadow_map.rgb * ssao;
+	// let ambient_component = albedo * emission_map.rgb * pow(ambient_removal, 3.);
 
-	color = color + ambient_component;
+	var color = pow(albedo_map.rgb, vec3<f32>(2.2)) * 0.1;
+	color = color * shadow_map.rgb * 1.0;
+	color = color + pow(emission_map.rgb, vec3<f32>(1.5)) * 0.001;
+	color = pow(color, vec3<f32>(1.5)) * 10.;
+	// var color = shadow_map.rgb * 0.1;
+	// color = color + ambient_component;
 	return vec4<f32>(color, 1.);
 }

@@ -68,7 +68,7 @@ fn main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
 	var texCoord = in.uv;
 	var color = textureSample(t_color, s_color, texCoord);
 	texCoord = texCoord + velocity;
-	for (var i = 1u; i < 10u; i = i + 1u) {
+	for (var i = 1u; i < 50u; i = i + 1u) {
 		color = color + textureSample(t_color, s_color, texCoord);
 
 		texCoord = texCoord + velocity;

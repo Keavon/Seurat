@@ -121,7 +121,7 @@ impl Engine {
 	}
 
 	pub fn load(&mut self, assets_path: &Path) {
-		let model_files = ["cube.obj", "sponza_pbr.obj"];
+		let model_files = ["classroom.obj"];
 		let model_meshes = self.preload_model_files(&model_files, assets_path);
 
 		self.build_scene(&model_meshes);
@@ -186,51 +186,61 @@ impl Engine {
 		// Spinning cube representing the light
 		let lamp = self.scene.root.new_child("Lamp Model");
 
-		let mut lamp_model = Model::new(("cube.obj", "BeveledCube"));
-		lamp_model.instances.instance_list[0].location.y = 4.;
-		lamp_model.instances.update_buffer(&self.context.device);
-		lamp.add_component(Component::Model(lamp_model));
+		// let mut lamp_model = Model::new(("cube.obj", "BeveledCube"));
+		// lamp_model.instances.instance_list[0].location.y = 4.;
+		// lamp_model.instances.update_buffer(&self.context.device);
+		// lamp.add_component(Component::Model(lamp_model));
 
 		let light_cube_movement = crate::scripts::light_cube_movement::LightCubeMovement;
 		lamp.add_component(Component::Behavior(Box::new(light_cube_movement)));
 
 		// Array of cubes
-		let cubes = self.scene.root.new_child("Cubes");
+		// let cubes = self.scene.root.new_child("Cubes");
 
-		let mut cube_model = Model::new(("cube.obj", "BeveledCube"));
+		// let mut cube_model = Model::new(("cube.obj", "BeveledCube"));
 
-		const NUM_INSTANCES_PER_ROW: u32 = 10;
-		const SPACE_BETWEEN: f32 = 1.0;
-		cube_model.instances.instance_list = (0..NUM_INSTANCES_PER_ROW)
-			.flat_map(|z| {
-				(0..NUM_INSTANCES_PER_ROW).map(move |x| {
-					let x = SPACE_BETWEEN * (x as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
-					let z = SPACE_BETWEEN * (z as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
+		// const NUM_INSTANCES_PER_ROW: u32 = 10;
+		// const SPACE_BETWEEN: f32 = 1.0;
+		// cube_model.instances.instance_list = (0..NUM_INSTANCES_PER_ROW)
+		// 	.flat_map(|z| {
+		// 		(0..NUM_INSTANCES_PER_ROW).map(move |x| {
+		// 			let x = SPACE_BETWEEN * (x as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
+		// 			let z = SPACE_BETWEEN * (z as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
 
-					let location = cgmath::Vector3 { x, y: 0.4, z };
+		// 			let location = cgmath::Vector3 { x, y: 0.4, z };
 
-					let rotation = if location.is_zero() {
-						cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0))
-					} else {
-						cgmath::Quaternion::from_axis_angle(location.normalize(), cgmath::Deg(45.0))
-					};
+		// 			let rotation = if location.is_zero() {
+		// 				cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0))
+		// 			} else {
+		// 				cgmath::Quaternion::from_axis_angle(location.normalize(), cgmath::Deg(45.0))
+		// 			};
 
-					let scale = cgmath::Vector3 { x: 0.25, y: 0.25, z: 0.25 };
+		// 			let scale = cgmath::Vector3 { x: 0.25, y: 0.25, z: 0.25 };
 
-					Instance { location, rotation, scale }
-				})
-			})
-			.collect::<Vec<_>>();
-		cube_model.instances.update_buffer(&self.context.device);
+		// 			Instance { location, rotation, scale }
+		// 		})
+		// 	})
+		// 	.collect::<Vec<_>>();
+		// cube_model.instances.update_buffer(&self.context.device);
 
-		cubes.add_component(Component::Model(cube_model));
+		// cubes.add_component(Component::Model(cube_model));
 
 		// Sponza
-		let sponza = self.scene.root.new_child("Sponza");
-		for mesh_name in model_files.get("sponza_pbr.obj").unwrap() {
-			let submesh = sponza.new_child(mesh_name);
+		// let sponza = self.scene.root.new_child("Sponza");
+		// for mesh_name in model_files.get("sponza_pbr.obj").unwrap() {
+		// 	let submesh = sponza.new_child(mesh_name);
 
-			let mut submesh_model = Model::new(("sponza_pbr.obj", mesh_name));
+		// 	let mut submesh_model = Model::new(("sponza_pbr.obj", mesh_name));
+		// 	submesh_model.instances.update_buffer(&self.context.device);
+
+		// 	submesh.add_component(Component::Model(submesh_model));
+		// }
+
+		let classroom = self.scene.root.new_child("Classroom");
+		for mesh_name in model_files.get("classroom.obj").unwrap() {
+			let submesh = classroom.new_child(mesh_name);
+
+			let mut submesh_model = Model::new(("classroom.obj", mesh_name));
 			submesh_model.instances.update_buffer(&self.context.device);
 
 			submesh.add_component(Component::Model(submesh_model));
@@ -259,10 +269,10 @@ impl Engine {
 						textures_to_load.insert((texture.clone(), wgpu::TextureFormat::Rgba8UnormSrgb, wgpu::AddressMode::Repeat));
 					}
 					if let Some(texture) = &mesh.map_arm {
-						textures_to_load.insert((texture.clone(), wgpu::TextureFormat::Rgba8Unorm, wgpu::AddressMode::Repeat));
+						textures_to_load.insert((texture.clone(), wgpu::TextureFormat::Rgba8UnormSrgb, wgpu::AddressMode::Repeat));
 					}
 					if let Some(texture) = &mesh.map_normal {
-						textures_to_load.insert((texture.clone(), wgpu::TextureFormat::Rgba8Unorm, wgpu::AddressMode::Repeat));
+						textures_to_load.insert((texture.clone(), wgpu::TextureFormat::Rgba8UnormSrgb, wgpu::AddressMode::Repeat));
 					}
 
 					// Prepare the material using those textures
