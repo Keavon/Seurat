@@ -239,7 +239,7 @@ impl Engine {
 
 	fn load_resources(&mut self, model_files: &HashMap<String, Vec<String>>, assets_path: &Path) {
 		let mut textures_to_load = HashSet::<(String, wgpu::TextureFormat, wgpu::AddressMode)>::new();
-		let mut materials_to_load = Vec::new();
+		let mut model_materials_to_load = Vec::new();
 
 		// Meshes
 		let blit_quad_mesh = Mesh::new_blit_quad(&self.context.device, &self.context.queue);
@@ -266,7 +266,7 @@ impl Engine {
 					}
 
 					// Prepare the material using those textures
-					materials_to_load.push((
+					model_materials_to_load.push((
 						format!("scene_deferred_{}.material", mesh.name.as_str()),
 						"scene_deferred.wgsl",
 						vec![mesh.map_albedo.clone(), mesh.map_arm.clone(), mesh.map_normal.clone(), Some(String::from("VOXEL_LIGHTMAP_TEXTURE"))]
@@ -274,7 +274,7 @@ impl Engine {
 							.flatten()
 							.collect::<Vec<_>>(),
 					));
-					materials_to_load.push((
+					model_materials_to_load.push((
 						format!("calc_voxel_lightmap_{}.material", mesh.name.as_str()),
 						"calc_voxel_lightmap.wgsl",
 						vec![Some(String::from("VOXEL_CAMERA_MATRICES")), mesh.map_albedo.clone(), Some(String::from("VOXEL_LIGHTMAP"))]
@@ -531,22 +531,71 @@ impl Engine {
 		);
 
 		for texture_file in textures_to_load {
-			let mut loaded_texture = Texture::load(&self.context.device, &self.context.queue, assets_path, texture_file.0.as_str(), texture_file.1, texture_file.2).unwrap();
+			let mut loaded_texture = Texture::load(&self.context.device, &self.context.queue, assets_path, texture_file.0.as_str(), texture_file.1, texture_file.2)
+				.unwrap_or_else(|_| panic!("Can't load texture file: {}", texture_file.0));
 			loaded_texture.generate_mipmaps(&self.context);
 			self.scene.resources.textures.insert(texture_file.0, loaded_texture);
 		}
 
 		// Materials
-		let ssao_samples_buffer = self.context.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-			label: Some("SSAO samples buffer"),
-			contents: bytemuck::cast_slice(&crate::ssao::generate_sample_hemisphere()),
-			usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-		});
 		let voxel_storage_buffer = self.context.device.create_buffer(&wgpu::BufferDescriptor {
 			label: Some("Voxel storage buffer"),
 			size: 128 * 128 * 128 * 4 * 4,
 			usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
 			mapped_at_creation: false,
+		});
+
+		let model_material_definitions = model_materials_to_load.iter().map(|(material_name, shader_name, data_bindings)| {
+			(
+				material_name.as_str(),
+				*shader_name,
+				data_bindings
+					.iter()
+					.map(|texture_path| match texture_path.as_str() {
+						"VOXEL_LIGHTMAP" => MaterialDataBinding::Buffer(BufferBinding {
+							buffer: &voxel_storage_buffer,
+							offset: 0,
+							size: None,
+						}),
+						"VOXEL_LIGHTMAP_TEXTURE" => MaterialDataBinding::Texture(&self.voxel_light_map.texture),
+						"VOXEL_CAMERA_MATRICES" => MaterialDataBinding::Buffer(BufferBinding {
+							buffer: &voxel_camera_x.camera_buffer,
+							offset: 0,
+							size: None,
+						}),
+						_ => MaterialDataBinding::TextureName(texture_path.as_str()),
+					})
+					.collect::<Vec<_>>(),
+			)
+		});
+
+		let material_definitions = [(
+			"compute_voxel_texture_generating.material",
+			"compute_voxel_texture_generating.wgsl",
+			vec![
+				MaterialDataBinding::StorageTexture(&self.voxel_light_map.texture, Some(&self.voxel_light_map.storage_texture_view)),
+				MaterialDataBinding::Buffer(wgpu::BufferBinding {
+					buffer: &voxel_storage_buffer,
+					offset: 0,
+					size: None,
+				}),
+			],
+		)];
+
+		let combined_materials = model_material_definitions.chain(material_definitions);
+		for (material_name, shader_name, data_bindings) in combined_materials {
+			let material = Material::new(material_name, shader_name, data_bindings, &self.scene.resources, &self.context.device);
+			self.scene.resources.materials.insert(String::from(material_name), material);
+		}
+
+		self.update_post_processing_pass_materials();
+	}
+
+	fn update_post_processing_pass_materials(&mut self) {
+		let ssao_samples_buffer = self.context.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+			label: Some("SSAO samples buffer"),
+			contents: bytemuck::cast_slice(&crate::ssao::generate_sample_hemisphere()),
+			usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
 		});
 		let z_buffer_previous_sampler = self.context.device.create_sampler(&wgpu::SamplerDescriptor {
 			label: Some("Z Buffer Previous sampleable sampler"),
@@ -574,7 +623,8 @@ impl Engine {
 			lod_max_clamp: 100.0,
 			..Default::default()
 		});
-		let material_definitions = [
+
+		let pass_material_definitions = [
 			(
 				"pass_ssao_kernel.material",
 				"pass_ssao_kernel.wgsl",
@@ -606,18 +656,6 @@ impl Engine {
 				],
 			),
 			(
-				"compute_voxel_texture_generating.material",
-				"compute_voxel_texture_generating.wgsl",
-				vec![
-					MaterialDataBinding::StorageTexture(&self.voxel_light_map.texture, Some(&self.voxel_light_map.storage_texture_view)),
-					MaterialDataBinding::Buffer(wgpu::BufferBinding {
-						buffer: &voxel_storage_buffer,
-						offset: 0,
-						size: None,
-					}),
-				],
-			),
-			(
 				"pass_motion_blur.material",
 				"pass_motion_blur.wgsl",
 				vec![
@@ -633,33 +671,7 @@ impl Engine {
 			),
 		];
 
-		let combined_materials = materials_to_load
-			.iter()
-			.map(|(material_name, shader_name, data_bindings)| {
-				(
-					material_name.as_str(),
-					*shader_name,
-					data_bindings
-						.iter()
-						.map(|texture_path| match texture_path.as_str() {
-							"VOXEL_LIGHTMAP" => MaterialDataBinding::Buffer(BufferBinding {
-								buffer: &voxel_storage_buffer,
-								offset: 0,
-								size: None,
-							}),
-							"VOXEL_LIGHTMAP_TEXTURE" => MaterialDataBinding::Texture(&self.voxel_light_map.texture),
-							"VOXEL_CAMERA_MATRICES" => MaterialDataBinding::Buffer(BufferBinding {
-								buffer: &voxel_camera_x.camera_buffer,
-								offset: 0,
-								size: None,
-							}),
-							_ => MaterialDataBinding::TextureName(texture_path.as_str()),
-						})
-						.collect::<Vec<_>>(),
-				)
-			})
-			.chain(material_definitions);
-		for (material_name, shader_name, data_bindings) in combined_materials {
+		for (material_name, shader_name, data_bindings) in pass_material_definitions {
 			let material = Material::new(material_name, shader_name, data_bindings, &self.scene.resources, &self.context.device);
 			self.scene.resources.materials.insert(String::from(material_name), material);
 		}
@@ -677,6 +689,7 @@ impl Engine {
 			}
 
 			self.frame_textures.recreate_all(&self.context.device, &self.context.surface_configuration);
+			self.update_post_processing_pass_materials();
 		}
 	}
 

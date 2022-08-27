@@ -52,7 +52,7 @@ fn world_position_from_depth(uv: vec2<f32>, z: f32) -> vec3<f32> {
 // Fragment shader
 [[stage(fragment)]]
 fn main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
-	let BLUR_DISTANCE = 0.1;
+	let BLUR_DISTANCE = 0.01;
 	
 	let current_frame_depth = textureSample(t_z_buffer, s_z_buffer, in.uv);
 	let current_frame_world_position = world_position_from_depth(in.uv, current_frame_depth);
