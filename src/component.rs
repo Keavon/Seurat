@@ -7,6 +7,6 @@ use crate::model::Model;
 pub enum Component {
 	Model(Model),
 	Light(Light),
-	Camera(Camera),
+	Camera(Box<Camera>),
 	Behavior(Box<dyn Behavior>),
 }

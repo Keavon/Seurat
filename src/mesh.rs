@@ -16,7 +16,7 @@ pub struct Mesh {
 }
 
 impl Mesh {
-	pub fn load(device: &wgpu::Device, queue: &wgpu::Queue, directory: &Path, file: &str) -> Result<Vec<Mesh>> {
+	pub fn load(device: &wgpu::Device, _queue: &wgpu::Queue, directory: &Path, file: &str) -> Result<Vec<Mesh>> {
 		let path = directory.join("models").join(file);
 
 		let (obj_models, obj_materials) = tobj::load_obj(
@@ -138,7 +138,7 @@ impl Mesh {
 		Ok(meshes)
 	}
 
-	pub fn new_blit_quad(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
+	pub fn new_blit_quad(device: &wgpu::Device, _queue: &wgpu::Queue) -> Self {
 		let corners = [(-1., -1.), (-1., 1.), (1., -1.), (1., 1.)];
 		let vertices = corners.map(|point| ModelVertex {
 			position: [point.0, point.1, 0.5],

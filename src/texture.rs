@@ -101,7 +101,7 @@ impl Texture {
 				bytes_per_row: std::num::NonZeroU32::new(4 * dimensions.0 * color_bytes_per_channel),
 				rows_per_image: std::num::NonZeroU32::new(dimensions.1),
 			},
-			size.clone(),
+			size,
 		);
 
 		let view = texture.create_view(&wgpu::TextureViewDescriptor::default());

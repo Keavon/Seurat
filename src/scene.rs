@@ -30,13 +30,13 @@ impl Scene {
 			// First traverse the index paths for the non-mutabe entity to check if it exists
 			let entity = index_path
 				.iter()
-				.fold(Some(&self.root), |accumulator, index| accumulator.map(|entity| entity.children.get(*index)).flatten());
+				.fold(Some(&self.root), |accumulator, index| accumulator.and_then(|entity| entity.children.get(*index)));
 
 			// If it exists, traverse again to get and immediately return the mutable entity reference
 			if entity.is_some() {
 				return index_path
 					.iter()
-					.fold(Some(&self.root), |accumulator, index| accumulator.map(|entity| entity.children.get(*index)).flatten());
+					.fold(Some(&self.root), |accumulator, index| accumulator.and_then(|entity| entity.children.get(*index)));
 			}
 		}
 
@@ -51,13 +51,13 @@ impl Scene {
 			// First traverse the index paths for the non-mutabe entity to check if it exists
 			let entity = index_path
 				.iter()
-				.fold(Some(&self.root), |accumulator, index| accumulator.map(|entity| entity.children.get(*index)).flatten());
+				.fold(Some(&self.root), |accumulator, index| accumulator.and_then(|entity| entity.children.get(*index)));
 
 			// If it exists, traverse again to get and immediately return the mutable entity reference
 			if entity.is_some() {
 				return index_path
 					.iter()
-					.fold(Some(&mut self.root), |accumulator, index| accumulator.map(|entity| entity.children.get_mut(*index)).flatten());
+					.fold(Some(&mut self.root), |accumulator, index| accumulator.and_then(|entity| entity.children.get_mut(*index)));
 			}
 		}
 
@@ -83,5 +83,11 @@ impl LoadedResources {
 			materials: IndexMap::new(),
 			meshes: IndexMap::new(),
 		}
+	}
+}
+
+impl Default for LoadedResources {
+	fn default() -> Self {
+		Self::new()
 	}
 }

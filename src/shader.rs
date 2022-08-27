@@ -6,7 +6,7 @@ use crate::light::SceneLighting;
 use crate::mesh::{ModelVertex, Vertex};
 
 use std::path::Path;
-use wgpu::{BindGroupLayout, ComputePipeline, PipelineLayout, RenderPipeline};
+use wgpu::{BindGroupLayout, PipelineLayout};
 
 pub struct Shader {
 	pub name: String,
@@ -161,7 +161,7 @@ fn build_bind_group_layout_entries(bindings: &[ShaderBinding]) -> Vec<wgpu::Bind
 					visibility: texture.visible_in_stages,
 					ty: wgpu::BindingType::StorageTexture {
 						access: wgpu::StorageTextureAccess::WriteOnly,
-						format: format.clone(),
+						format: *format,
 						view_dimension: texture.dimensions,
 					},
 					count: None,

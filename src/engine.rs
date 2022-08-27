@@ -250,8 +250,7 @@ impl Engine {
 				let meshes = model_files
 					.iter()
 					// TODO: Get rid of these two `clone()` calls
-					.map(|_| self.scene.resources.meshes.get(&(model_name.clone(), mesh_name.clone())))
-					.flatten()
+					.flat_map(|_| self.scene.resources.meshes.get(&(model_name.clone(), mesh_name.clone())))
 					.collect::<Vec<_>>();
 
 				for mesh in meshes {
@@ -929,7 +928,7 @@ impl Engine {
 						crate::shader::PipelineType::ComputePipeline(compute_pipeline) => compute_pipeline,
 					};
 					let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some(&pass.label) });
-					compute_pass.set_pipeline(&pipeline);
+					compute_pass.set_pipeline(pipeline);
 					compute_pass.set_bind_group(0, &material.bind_group, &[]);
 					// compute_pass.insert_debug_marker("Running the compute shader");
 					let (x, y, z) = pass.work_groups_size;

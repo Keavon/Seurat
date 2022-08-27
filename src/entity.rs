@@ -38,8 +38,8 @@ impl Entity {
 	}
 
 	pub fn add_camera_component(&mut self, context: &Context, projection: Projection) {
-		let camera = Camera::new(&context, projection);
-		self.add_component(Component::Camera(camera));
+		let camera = Camera::new(context, projection);
+		self.add_component(Component::Camera(Box::new(camera)));
 	}
 
 	pub fn iter(&self) -> EntityIter<'_> {
@@ -128,7 +128,7 @@ impl Entity {
 		self.components
 			.iter()
 			.filter_map(|component| match component {
-				Component::Camera(camera) => Some(camera),
+				Component::Camera(camera) => Some(camera.as_ref()),
 				_ => None,
 			})
 			.collect()
@@ -138,12 +138,13 @@ impl Entity {
 		self.components
 			.iter_mut()
 			.filter_map(|component| match component {
-				Component::Camera(camera) => Some(camera),
+				Component::Camera(camera) => Some(camera.as_mut()),
 				_ => None,
 			})
 			.collect()
 	}
 
+	#[allow(clippy::borrowed_box)]
 	pub fn get_behaviors(&self) -> Vec<&Box<dyn Behavior>> {
 		self.components
 			.iter()
@@ -174,15 +175,9 @@ impl<'a> IntoIterator for &'a Entity {
 	}
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct EntityIter<'a> {
 	pub stack: Vec<&'a Entity>,
-}
-
-impl Default for EntityIter<'_> {
-	fn default() -> Self {
-		Self { stack: vec![] }
-	}
 }
 
 impl<'a> Iterator for EntityIter<'a> {

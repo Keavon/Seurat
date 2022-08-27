@@ -1,12 +1,9 @@
-use std::io::Read;
+use crate::context::Context;
+use crate::transform::Transform;
 
-use cgmath::{EuclideanSpace, Euler, InnerSpace, Matrix, Matrix4, Point3, Rad, SquareMatrix, Vector3};
+use cgmath::{Euler, InnerSpace, Matrix4, Point3, Rad, SquareMatrix, Vector3};
 use wgpu::util::DeviceExt;
 use wgpu::{BindGroup, BindGroupLayout, Buffer};
-
-use crate::context::Context;
-use crate::entity::Entity;
-use crate::transform::{self, Transform};
 
 #[rustfmt::skip]
 pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
